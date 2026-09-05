@@ -1,6 +1,6 @@
 ---
 status: current
-summary: Re-download the Austria test archive from MPC under spec 58 P1's catalog schema — deletes the old archive first (the disk is the binding constraint), and re-stamps radiometry from each item's own declared baseline.
+summary: Re-download the Austria test archive from MPC under spec 58 P1's catalog schema — settled on B04/B08/SCL at cloudcover 50 (~89 GB, 184 granules) because full fidelity did not fit; re-stamps radiometry from each item's own declared baseline.
 ---
 
 # Run-book: 58 — re-download the Austria archive (MPC, new catalog schema)
@@ -65,7 +65,30 @@ price a scope lever with `discover` before committing, e.g.:
 ```
 
 Each is a STAC query plus three HEADs — seconds, no bytes. **Whatever you settle on, pass the
-same `--bands` / `--max-cloudcover` to `download`.**
+same `--bands` / `--max-cloudcover` to `download`.** (`verify` and `build-cube` need no flags:
+they read the band set back off the catalog's own `files` column, so they cannot disagree with
+what was actually downloaded.)
+
+### What this archive actually is (settled 2026-09-05)
+
+| | value | vs the run-book default |
+|---|---|---|
+| bands | **`B04,B08,SCL`** | **B8A dropped** |
+| `max_cloudcover` | **50** | was 70 |
+| granules | **184** | 213 at cc70; the old CDSE archive had 207 |
+| size | **~89 GB** (0.483 GB/granule) | ~117 GB at full fidelity |
+
+**Two consequences, neither of which fails loudly:**
+
+1. **`demos/e2e_austria.py` requests `B04,B08,B8A,SCL`.** Run it against this archive and it
+   will go and fetch B8A — another ~28 GB, which will not fit. Change its `BANDS` to match, or
+   accept the download.
+2. **Spec 58 P3's AC17 compares `red` and `nir08` between `sentinel-2-l2a` and `hls2-s30`, and
+   `nir08` *is* B8A.** P3 will need a supplementary B8A pass over this window. Dropping it here
+   deferred that cost; it did not remove it.
+
+The cloud-cover change is not a loss: 50 is a stricter filter than 70, so the granules that
+remain are better, just fewer.
 
 ## Prerequisites
 
@@ -159,7 +182,8 @@ Deletes `tests/outputs/demo_e2e/imagery/` (~79 GB). Without the flag the script 
 ### Step 3 — download (the long leg, ~1–3 h)
 
 ```bash
-.venv/bin/python runbooks/scripts/58_redownload_austria.py download --max-concurrent 16
+.venv/bin/python runbooks/scripts/58_redownload_austria.py download \
+    --bands B04,B08,SCL --max-cloudcover 50 --max-concurrent 16
 ```
 
 `api.download(source="mpc", collection="sentinel-2-l2a", ...)` with `progress=True`, so it
@@ -201,7 +225,7 @@ This is the step that proves the re-download did its job. It checks, on the real
 | `scale == 1e-4` | D5.1's declared scale reached the catalog |
 | `properties_non_empty` | D12's `properties` column is populated, not `{}` |
 | `scl_never_offset` | SCL's COG carries scale 1 / offset 0 while B04's carries 1e-4 — the on-disk counterpart of the `radiometry_bands=None` bug P1's review re-derived |
-| `all_bands_present_per_granule` | B04/B08/B8A/SCL on every row |
+| `every_granule_has_the_same_bands` | the archive's own band set (read from `files`, reported as `archive_bands`) is present on every row. Checks **internal consistency**, not a hardcoded list — which bands were downloaded is your choice; a granule short of one the others have is the bug |
 
 - **PASS if:** every entry of `checks` is `true`.
 - **If `offset_matches_declared_baseline` fails:** read `offset_mismatches` in the metrics —
@@ -221,8 +245,10 @@ one from the AT_ROI grid cell spanning the most MGRS tiles (**the multi-CRS seam
 `satellite_benchmark/` was deleted, AT_ROI is the *only* real-data cover left for that seam —
 the Ethiopia ROI has no imagery behind it any more.
 
-Each writes `first_timestamp_rgb.tif` (B08/B04/B8A) under
-`tests/outputs/p58_redownload/cubes/<case>/`.
+Builds with the bands the **archive** holds (read off `files`, printed as `bands`), not a
+hardcoded list — so no flags, and no way for this step to disagree with what step 3 fetched.
+Each writes `first_timestamp_rgb.tif` under `tests/outputs/p58_redownload/cubes/<case>/`:
+B08/B04/B8A where present, so on this archive it is a **two-band** B08/B04 file, not three.
 
 - **Expect:** both `built: true`, a 4-D `shape` `(timestamps, height, width, bands)`,
   `nodata_fraction` well under 0.9, and `seam_cell_mgrs_tile_count` ≥ 2.
@@ -264,8 +290,9 @@ Paste the six files back, plus one line on what QGIS showed.
 
 ## After this run-book
 
-- `demos/e2e_austria.py` still calls `sources.cdse` directly and will re-download from CDSE if
-  you run it. It is **not** updated by this run-book — the demo's own source choice is a
-  separate change, tracked with spec 58's follow-ups.
+- `demos/e2e_austria.py` still calls `sources.cdse` directly **and requests B8A**, so running it
+  against this archive re-downloads from CDSE and fetches a band this archive does not have.
+  It is **not** updated by this run-book — the demo's source and band choices are a separate
+  change, tracked with spec 58's follow-ups. See "What this archive actually is" above.
 - THE ORDER's next item is **spec 58 P2** (`sentinel-1-rtc`), which needs this archive's window
   as the S2 half of AC15's Window A comparison.
