@@ -452,7 +452,7 @@ def step_verify() -> int:
         "scale": EXPECTED_SCALE,
         "properties_non_empty": True,
         "scl_never_offset": True,
-        "all_bands_present_per_granule": True,
+        "every_granule_has_the_same_bands": True,
     })
     try:
         from fsd.catalog import declaration as dm
@@ -470,10 +470,7 @@ def step_verify() -> int:
         offsets = sorted({int(v) for v in gdf["offset"]})
         scales = sorted({float(v) for v in gdf["scale"]})
         props_non_empty = int((gdf["properties"].astype(str) != "{}").sum())
-        missing_bands = [
-            r["id"] for _, r in gdf.iterrows()
-            if not set(BANDS).issubset({f.rsplit(".", 1)[0] for f in str(r["files"]).split(",")})
-        ]
+        archive_bands, missing_bands = _bands_in_catalog(gdf)
         scl_offset_ok = _scl_gdal_tag_is_unoffset(gdf)
         version = (stamp_raw or {}).get("fsd_declaration_version")
         offset_mismatches, baselines = _offset_matches_baseline(gdf)
@@ -486,10 +483,11 @@ def step_verify() -> int:
             "scale": scales == [EXPECTED_SCALE],
             "properties_non_empty": props_non_empty == len(gdf),
             "scl_never_offset": scl_offset_ok,
-            "all_bands_present_per_granule": not missing_bands,
+            "every_granule_has_the_same_bands": not missing_bands,
         }
         result["metrics"] = {
             "granules": len(gdf),
+            "archive_bands": archive_bands,
             "columns": list(gdf.columns),
             "offsets_seen": offsets,
             "baselines_seen": baselines,
@@ -507,6 +505,34 @@ def step_verify() -> int:
         result["status"] = "fail"
         result["error"] = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
     return _write(result)
+
+
+def _bands_in_catalog(gdf) -> tuple[list[str], list[str]]:
+    """The band set the archive actually holds, and any granule that disagrees with it.
+
+    Read from the catalog's own `files` column rather than from this module's `BANDS`
+    constant or a `--bands` flag. The constant is the *default* request; the archive on disk
+    is whatever the run settled on -- the first real run of this run-book downloaded
+    `B04,B08,SCL` (B8A dropped to fit the disk), and a `verify` that checked the constant
+    would have reported all 184 granules as missing a band. Reading the artifact removes a
+    whole class of "I passed different flags to different steps" failure.
+
+    The real invariant is INTERNAL CONSISTENCY: every granule carries the same bands as
+    every other. Which bands is the operator's choice; a granule short of one is the bug.
+    Returns `(sorted band union, ids disagreeing with that union)`.
+    """
+    per_granule = {
+        r["id"]: frozenset(f.rsplit(".", 1)[0] for f in str(r["files"]).split(",") if f)
+        for _, r in gdf.iterrows()
+    }
+    if not per_granule:
+        return [], []
+    union: set[str] = set().union(*per_granule.values())
+    # Non-raster sidecars (CDSE writes `MTD_TL.xml`) are not bands and are not required
+    # to be uniform; the builder skips them too (`flatten_catalog`).
+    union -= {"MTD_TL"}
+    odd = [gid for gid, bands in per_granule.items() if not union.issubset(bands)]
+    return sorted(union), odd
 
 
 def _offset_matches_baseline(gdf) -> tuple[list[dict], list[str]]:
@@ -584,19 +610,29 @@ def step_build_cube() -> int:
     try:
         import geopandas as gpd
 
+        from fsd.storage import fs
+
         cube_dir = OUT / "cubes"
         cube_dir.mkdir(parents=True, exist_ok=True)
         catalog_filepath = str(DATA_DIR / "catalog.parquet")
+
+        # Build with the bands the archive HAS, not the ones this module defaults to --
+        # same reasoning as `verify` (see `_bands_in_catalog`). Requesting a band the
+        # catalog lacks would fail the build for a reason that has nothing to do with the
+        # archive being good or bad.
+        bands, _odd = _bands_in_catalog(fs.read_parquet(catalog_filepath))
+        print(f"[58] building with the archive's own bands: {bands}", flush=True)
 
         control = gpd.read_file(CELL_PATH)
         seam, seam_tiles = _most_multi_tile_cell(catalog_filepath)
         cases = {"control_T33UWP": control, "seam_multi_tile": seam}
 
-        metrics = {"seam_cell_mgrs_tile_count": seam_tiles}
+        metrics = {"seam_cell_mgrs_tile_count": seam_tiles, "bands": bands}
         for name, cell_gdf in cases.items():
             cell_fp = cube_dir / f"{name}.geojson"
             cell_gdf.to_file(cell_fp, driver="GeoJSON")
-            metrics[name] = _build_one(str(cell_fp), catalog_filepath, cube_dir / name)
+            metrics[name] = _build_one(str(cell_fp), catalog_filepath, cube_dir / name,
+                                       bands)
 
         result["metrics"] = metrics
         result["pass"] = all(
@@ -640,7 +676,8 @@ def _most_multi_tile_cell(catalog_filepath: str):
     return best, best_n
 
 
-def _build_one(cell_filepath: str, catalog_filepath: str, out_dir: pathlib.Path) -> dict:
+def _build_one(cell_filepath: str, catalog_filepath: str, out_dir: pathlib.Path,
+               bands: list[str]) -> dict:
     """One cube through the real workflow entry point, then a GeoTIFF of its first
     timestamp for QGIS. Returns the metrics dict this cell contributes."""
     import numpy as np
@@ -657,7 +694,7 @@ def _build_one(cell_filepath: str, catalog_filepath: str, out_dir: pathlib.Path)
         run_folderpath=str(out_dir / "run"),
         startdate=STARTDATE,
         enddate=ENDDATE,
-        bands=BANDS,
+        bands=bands,
         mosaic_days=20,
         csv_filepath=str(out_dir / "input.csv"),
         label_col=None,
