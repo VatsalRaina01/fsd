@@ -141,3 +141,57 @@ def test_build_variant_with_only_policy_difference_is_accepted():
     declaration_module.to_attrs(gdf, stamped)
     resolved = builder._resolve_build_declaration(gdf, variant)
     assert resolved is variant
+
+
+# --- api.download exposes transfer concurrency (found by run-book 58) -------------------
+
+def test_download_forwards_max_concurrent_to_both_sources(monkeypatch, tmp_path):
+    """`api.download` must let a caller raise the transfer concurrency.
+
+    Found while running `runbooks/58-redownload-austria-mpc.md`: a 213-granule archive was
+    crawling because `sources.mpc.download` was pinned to `config.MPC_MAX_CONCURRENT` (4 --
+    a value whose own comment says it was chosen for "a single tile/band runbook"), and the
+    verb had no parameter to override it. The seam existed one layer down the whole time;
+    only the passthrough was missing.
+
+    Pinned for BOTH sources, because a parameter wired for one and silently ignored for the
+    other is worse than one that does not exist.
+    """
+    from fsd import api as _api
+
+    seen = {}
+
+    def _fake_mpc(**kwargs):
+        seen.update(kwargs)
+
+    def _fake_cdse(**kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr(_api, "_mpc_download", _fake_mpc)
+    monkeypatch.setattr(_api, "_cdse_download", _fake_cdse)
+    monkeypatch.setattr(_api, "_configure_storage", lambda *a, **kw: None)
+
+    roi = tmp_path / "roi.geojson"
+    roi.write_text('{"type":"FeatureCollection","features":[]}')
+
+    api.download(
+        str(roi), "2018-06-01", "2018-06-11", ["B04"], str(tmp_path / "mpc"),
+        source="mpc", max_tiles=10, max_concurrent=24,
+    )
+    assert seen["max_concurrent"] == 24
+
+    seen.clear()
+    api.download(
+        str(roi), "2018-06-01", "2018-06-11", ["B04"], str(tmp_path / "cdse"),
+        source="cdse", creds=object(), max_tiles=10, max_concurrent=24,
+    )
+    # CDSE names its transfer pool `max_concurrent_s3`; the verb's one knob reaches it.
+    assert seen["max_concurrent_s3"] == 24
+
+    # Omitting it leaves each source on its own default -- never a hardcoded number here.
+    seen.clear()
+    api.download(
+        str(roi), "2018-06-01", "2018-06-11", ["B04"], str(tmp_path / "mpc2"),
+        source="mpc", max_tiles=10,
+    )
+    assert seen["max_concurrent"] is None

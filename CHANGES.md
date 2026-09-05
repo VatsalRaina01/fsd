@@ -4,6 +4,20 @@ Living record of how `fsd` differs from the legacy repos for behavior that **is*
 carried over (renames, restructures, behavioral tweaks). Pure removals go in
 `DROPPED.md`.
 
+## `api.download` gained `max_concurrent` (2026-09-05)
+
+`download` now takes `max_concurrent` — how many band files transfer at once. It reaches
+`sources.mpc.download`'s `max_concurrent` and `sources.cdse.download`'s `max_concurrent_s3`;
+`None` (the default) leaves each source on its own default, so nothing changes unless you ask.
+
+**Why:** the seam existed one layer down the whole time, but the verb never forwarded it, so
+every `api.download` was pinned to `config.MPC_MAX_CONCURRENT` = 4 — a value whose own comment
+says it was picked for *"a single tile/band runbook"*. Running `runbooks/58-redownload-austria-mpc.md`
+(213 granules × 4 bands) made that impossible to miss: the transfer is latency-bound, and there
+was no way to say so from the public API. Pinned for **both** sources by
+`tests/test_spec58_p1.py::test_download_forwards_max_concurrent_to_both_sources` — a parameter
+wired for one source and silently ignored for the other is worse than one that does not exist.
+
 ## Spec 58 P1 — the verbs become collection-agnostic (2026-09-05)
 
 The public verbs (`download`, `create_training_data`, `run_inference`, `verify_adapter`)

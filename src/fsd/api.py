@@ -337,6 +337,7 @@ def download(
     max_cloudcover: float | None = None,
     cog: bool = True,
     progress: bool = True,
+    max_concurrent: int | None = None,
     storage=None,
     runner: str = "local",
     runner_kwargs: dict | None = None,
@@ -359,6 +360,14 @@ def download(
     58 D6, a discovery-only capability, e.g. every optical collection but not Sentinel-1) --
     passing it against a collection with no cloud-cover concept raises rather than
     silently being a no-op filter.
+
+    `max_concurrent` is how many band files transfer at once (`sources.mpc.download`'s
+    `max_concurrent`, `sources.cdse.download`'s `max_concurrent_s3`). `None` keeps each
+    source's default -- for MPC that is `config.MPC_MAX_CONCURRENT` (4), a value chosen for
+    a one-tile smoke run and far too low for a whole archive: 200+ granules x 4 bands over
+    4 threads is latency-bound, not bandwidth-bound. Raise it (16-32 against MPC, which is
+    a public Azure endpoint) when the run is large. It was previously not reachable from
+    this verb at all, which made a big download slow with no way to say so.
 
     `runner="local"` (default) downloads in-process, as above. `runner="aml"` dispatches
     onto an Azure ML cluster instead, colocated with blob: CDSE runs as **one** job; MPC
@@ -415,14 +424,14 @@ def download(
             roi=roi, startdate=startdate, enddate=enddate, bands=bands,
             root_folderpath=dst_folderpath, catalog=catalog,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, progress=progress,
-            collection=collection,
+            collection=collection, max_concurrent=max_concurrent,
         )
     else:
         _cdse_download(
             roi=roi, startdate=startdate, enddate=enddate, bands=bands,
             root_folderpath=dst_folderpath, catalog=catalog, creds=creds,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog, progress=progress,
-            collection=collection,
+            collection=collection, max_concurrent_s3=max_concurrent,
         )
     return catalog_filepath
 

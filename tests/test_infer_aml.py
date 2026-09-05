@@ -732,8 +732,12 @@ def test_run_aml_inference_omits_group_flags_by_default_so_node_computes_them(
 def test_download_coerces_string_and_timestamp_startdate_to_the_same_timestamp(monkeypatch, tmp_path):
     calls = []
 
+    # `**_rest` on purpose: this test pins how `startdate` is COERCED, not the full kwarg
+    # set `api.download` forwards. Spelling every parameter out made it fail the moment
+    # `max_concurrent` was added -- a false negative about date handling.
     def _fake_mpc_download(*, roi, startdate, enddate, bands, root_folderpath, catalog,
-                           max_tiles, max_cloudcover=None, progress=True, collection=None):
+                           max_tiles, max_cloudcover=None, progress=True, collection=None,
+                           **_rest):
         calls.append((startdate, enddate))
 
     monkeypatch.setattr(api, "_mpc_download", _fake_mpc_download)

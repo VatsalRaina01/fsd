@@ -6,15 +6,22 @@ never runs itself (`CLAUDE.md`) — you run it, and paste back each step's `_res
 Why it exists: spec 58 D12 renamed `satellite`→`collection` and added `scale`/`properties`
 with **no read-time back-compat shim**, so every catalog written before P1 is invalidated.
 The existing Austria archive is worse than one generation behind — it carries no `offset`
-or `nodata` column at all, so the cubes built from it are ~1000 DN high (every granule is
-baseline N0500, ESA offset −1000, recorded as nothing). The re-download retires that debt
-by re-ingesting under post-spec-34 code, which stamps the real per-item offset.
+or `nodata` column at all. Re-ingesting under post-spec-34 code stamps a real, per-item
+radiometric offset derived from the baseline the item declares, whatever that turns out to
+be, instead of a hardcoded nothing.
 
 Source is **MPC**, not the CDSE the old archive came from (spec 58 D1 made MPC the default:
 anonymous, and its assets are already COG so there is no jp2→COG conversion leg). Item ids
 and the on-disk layout therefore change — flat `<root>/<item_id>/` instead of CDSE's
 `Sentinel-2/MSI/L2A_N0500/YYYY/MM/DD/<id>/`. Nothing reads those paths except the catalog
 that is being rewritten anyway.
+
+⚠️ **The two providers serve different processings of the same acquisitions, and both are
+correct.** CDSE served the **2023 reprocessing** (baseline N0500 ≥ 04.00 → ESA offset
+−1000); MPC serves the **original 2018 processing** (baseline < 04.00 → offset 0). The old
+archive was wrong not because its offset was 0 but because it stamped 0 onto *reprocessed*
+bytes that needed −1000. `verify` therefore checks the offset against each item's OWN
+declared baseline rather than against a constant — see the note by `EXPECTED_SCALE`.
 
 Self-contained by the spec-31 run-book pattern: every step is wrapped so `_result_<step>.json`
 is written even on a hard failure, and the download step is idempotent + resume-safe
@@ -23,11 +30,15 @@ in flight).
 
 Steps, in order — each is a separate invocation:
 
+    .venv/bin/python runbooks/scripts/58_redownload_austria.py reclaim --yes-delete
     .venv/bin/python runbooks/scripts/58_redownload_austria.py discover
     .venv/bin/python runbooks/scripts/58_redownload_austria.py free-disk --yes-delete-the-archive
-    .venv/bin/python runbooks/scripts/58_redownload_austria.py download
+    .venv/bin/python runbooks/scripts/58_redownload_austria.py download --max-concurrent 16
     .venv/bin/python runbooks/scripts/58_redownload_austria.py verify
     .venv/bin/python runbooks/scripts/58_redownload_austria.py build-cube
+
+`reclaim` and `discover` take `--bands` / `--max-cloudcover`; whatever you price in
+`discover`, pass the same values to `download`.
 """
 
 from __future__ import annotations
@@ -89,14 +100,24 @@ MAX_CLOUDCOVER = 70
 MAX_TILES = 260
 EXPECTED_MGRS = {"T33UVP", "T33UWP", "T33UVQ", "T33UWQ"}
 
-# Every granule in this window is processing baseline >= 04.00 (N0500), so ESA's additive
-# offset is -1000 for reflectance bands and 0 for SCL. This is the radiometry debt the
-# re-download exists to retire -- `verify` asserts it rather than hoping.
-EXPECTED_OFFSET = -1000
 EXPECTED_SCALE = 1e-4
 
+# ⚠️ There is deliberately NO expected-offset constant. An earlier draft of this script
+# asserted `offset == -1000` for every row, reasoning from the OLD archive: CDSE served the
+# 2023 reprocessing of this window (ids like `..._N0500_..._20230710T001349`), and baseline
+# >= 04.00 means ESA's -1000 shift. The `discover` step falsified that in seconds --
+# MPC reports `offsets_declared: [0]`, because MPC serves the ORIGINAL 2018 processing of
+# the same acquisitions, which predates baseline 04.00 and genuinely carries no shift.
+#
+# Both are correct for their own bytes. So `verify` derives the expected offset per row from
+# the baseline the item itself declares (now available in the `properties` column, spec 58
+# D12) and checks the catalog agrees -- which is a stronger check than any constant, and one
+# that stays right when the provider or the window changes.
+
 # Sampled in `discover` to size the delete decision; falls back to this if the HEADs fail.
-FALLBACK_GB_PER_GRANULE = 0.30
+# NOT a good default: the first real sample measured 0.549 GB/granule for B04+B08+B8A+SCL
+# from MPC, ~43% above the CDSE-converted archive's 0.384. Always trust the sample.
+FALLBACK_GB_PER_GRANULE = 0.55
 
 
 def _result(step: str, expected: dict) -> dict:
@@ -119,8 +140,16 @@ def _free_gb(path: pathlib.Path) -> float:
 
 
 def _dir_gb(path: pathlib.Path) -> float:
+    """Size of a directory tree **or a single file**, in GB.
+
+    The file case is not hypothetical: `RECLAIM_CANDIDATES` names `rf.joblib` (1.2 GiB), and
+    an `os.walk`-only version reports a plain file as 0.0 -- which would have quietly
+    under-reported the reclaim by more than a gigabyte and made the dry run look pointless.
+    """
     if not path.exists():
         return 0.0
+    if path.is_file():
+        return path.stat().st_size / 1e9
     total = 0
     for root, _dirs, files in os.walk(path):
         for f in files:
@@ -131,12 +160,79 @@ def _dir_gb(path: pathlib.Path) -> float:
     return total / 1e9
 
 
+# --- step 0: reclaim stale derived artifacts -----------------------------------------
+
+# Everything the old archive fed, which is stale the moment it is deleted. `imagery/` is
+# NOT here (that is `free-disk`'s job and it needs its own confirmation), and neither is
+# `mpc_baseline/` -- 1.6 GiB, but it is the reference cube this run-book's own GeoTIFF
+# writer was validated against, and the only local MPC radiometry sample.
+RECLAIM_CANDIDATES = (
+    "tests/outputs/demo_e2e/model_outputs",
+    "tests/outputs/demo_e2e/bundle",
+    "tests/outputs/demo_e2e/rf.joblib",
+    "tests/outputs/demo_e2e/training_data",
+    "tests/outputs/demo_e2e/training_run",
+    "tests/outputs/spec34_mixed_baseline",
+)
+
+
+def step_reclaim(confirmed: bool) -> int:
+    """Free the derived artifacts of the archive being replaced. Reports what it would
+    remove and refuses to act without `--yes-delete`, same shape as `free-disk`.
+
+    This exists because the first real run of this run-book did not fit: the measured
+    0.549 GB/granule put the archive at ~117 GB against ~104 GB of headroom. Reclaiming
+    these buys ~10 GB, which is necessary but on its own may still not be enough -- re-run
+    `discover` with `--bands`/`--max-cloudcover` to price the rest.
+    """
+    result = _result("reclaim", {"reclaimed_gb": "> 0", "candidates_removed": True})
+    try:
+        sizes = {c: _dir_gb(FSD_ROOT / c) for c in RECLAIM_CANDIDATES}
+        total = sum(sizes.values())
+        if not confirmed:
+            result["status"] = "fail"
+            result["metrics"] = {"would_reclaim_gb": round(total, 1),
+                                 "per_path_gb": {k: round(v, 2) for k, v in sizes.items()},
+                                 "free_gb_now": round(_free_gb(FSD_ROOT), 1)}
+            result["error"] = ("dry run: pass --yes-delete to actually remove these. "
+                               "Nothing was deleted.")
+            return _write(result)
+
+        free_before = _free_gb(FSD_ROOT)
+        for c in RECLAIM_CANDIDATES:
+            target = FSD_ROOT / c
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+        free_after = _free_gb(FSD_ROOT)
+        result["metrics"] = {
+            "reclaimed_gb": round(total, 1),
+            "per_path_gb": {k: round(v, 2) for k, v in sizes.items()},
+            "free_gb_before": round(free_before, 1),
+            "free_gb_after": round(free_after, 1),
+            "all_removed": not any((FSD_ROOT / c).exists() for c in RECLAIM_CANDIDATES),
+        }
+        result["pass"] = result["metrics"]["all_removed"]
+        if not result["pass"]:
+            result["status"] = "fail"
+    except Exception as exc:  # noqa: BLE001
+        result["status"] = "fail"
+        result["error"] = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+    return _write(result)
+
+
 # --- step 1: discover ---------------------------------------------------------------
 
-def step_discover() -> int:
+def step_discover(bands: list[str], max_cloudcover: float) -> int:
     """Query MPC and size the run. **No bytes are transferred and nothing is deleted** --
     this runs BEFORE the destructive step on purpose, so a bad ROI/window/collection costs
-    nothing but a STAC query."""
+    nothing but a STAC query.
+
+    `bands` and `max_cloudcover` are overridable (`--bands`, `--max-cloudcover`) so a run
+    that will not fit on disk can be re-priced in seconds instead of guessed at. Whatever
+    you settle on here, pass the SAME values to `download`.
+    """
     result = _result("discover", {
         "granules_between": [150, MAX_TILES],
         "mgrs_tiles": sorted(EXPECTED_MGRS),
@@ -150,12 +246,12 @@ def step_discover() -> int:
         declaration = _collections.get("sentinel-2-l2a")
         print("[58] querying MPC STAC (no bytes) ...", flush=True)
         gdf = mpc.query_catalog(str(ROI_PATH), STARTDATE, ENDDATE,
-                                max_cloudcover=MAX_CLOUDCOVER, collection="sentinel-2-l2a")
+                                max_cloudcover=max_cloudcover, collection="sentinel-2-l2a")
         mgrs = sorted({i.split("_")[-2] for i in gdf["id"]})
 
         # Measure, don't guess: HEAD the band assets of a few real items so the delete
         # decision below rests on this run's own numbers, not on a constant in this file.
-        gb_per_granule, sampled = _sample_granule_gb(mpc, declaration)
+        gb_per_granule, sampled = _sample_granule_gb(mpc, declaration, bands, max_cloudcover)
 
         n = len(gdf)
         est_gb = n * gb_per_granule
@@ -164,6 +260,8 @@ def step_discover() -> int:
         free_after_delete = free_now + current_gb
 
         result["metrics"] = {
+            "bands": list(bands),
+            "max_cloudcover": max_cloudcover,
             "granules": n,
             "mgrs_tiles": mgrs,
             "collections": sorted(set(gdf["collection"])),
@@ -192,14 +290,15 @@ def step_discover() -> int:
     return _write(result)
 
 
-def _sample_granule_gb(mpc, declaration, n_sample: int = 3) -> tuple[float, int]:
+def _sample_granule_gb(mpc, declaration, bands: list[str], max_cloudcover: float,
+                       n_sample: int = 3) -> tuple[float, int]:
     """Mean GB per granule across `n_sample` real items, from HTTP `Content-Length` on the
     signed asset hrefs. Returns `(gb_per_granule, n_sampled)`; falls back to
     `FALLBACK_GB_PER_GRANULE` (0 sampled) if MPC won't answer a HEAD."""
     try:
         roi_gdf = mpc._roi_gdf(str(ROI_PATH))
         items = mpc._dedupe_reprocessed_items(
-            mpc._search_items(roi_gdf, STARTDATE, ENDDATE, max_cloudcover=MAX_CLOUDCOVER,
+            mpc._search_items(roi_gdf, STARTDATE, ENDDATE, max_cloudcover=max_cloudcover,
                               collection="sentinel-2-l2a")
         )[:n_sample]
         if not items:
@@ -208,7 +307,7 @@ def _sample_granule_gb(mpc, declaration, n_sample: int = 3) -> tuple[float, int]
         for it in items:
             nbytes = 0
             for href, _dst, _band in mpc._select_item_files(
-                it, BANDS, str(DATA_DIR), collection="sentinel-2-l2a",
+                it, bands, str(DATA_DIR), collection="sentinel-2-l2a",
                 declaration=declaration,
             ):
                 req = urllib.request.Request(href, method="HEAD")
@@ -277,9 +376,19 @@ def step_free_disk(confirmed: bool) -> int:
 
 # --- step 3: download ----------------------------------------------------------------
 
-def step_download() -> int:
+def step_download(bands: list[str], max_cloudcover: float, max_concurrent: int) -> int:
     """The long leg. Resume-safe: `mpc.download` skips any file already on disk, so Ctrl-C
-    and re-run costs only the transfers that were in flight."""
+    and re-run costs only the transfers that were in flight.
+
+    `max_concurrent` is why this used to crawl: `sources.mpc.download` defaults to
+    `config.MPC_MAX_CONCURRENT` (4 -- a value whose own comment says it was picked for "a
+    single tile/band runbook"), and `api.download` did not forward the parameter at all
+    until this run-book needed it. 200+ granules x 4 bands over 4 threads is latency-bound,
+    not bandwidth-bound. 16 is a reasonable default against MPC, a public Azure endpoint.
+
+    Pass the SAME `bands`/`max_cloudcover` you priced in `discover`, or the archive will not
+    be the one you sized the disk for.
+    """
     result = _result("download", {
         "catalog_written": True,
         "granules_between": [150, MAX_TILES],
@@ -290,25 +399,30 @@ def step_download() -> int:
         from fsd import api
 
         t0 = time.time()
-        print(f"[58] downloading {BANDS} -> {DATA_DIR} (progress on; Ctrl-C is resume-safe)",
+        print(f"[58] downloading {bands} -> {DATA_DIR} "
+              f"(max_concurrent={max_concurrent}; progress on; Ctrl-C is resume-safe)",
               flush=True)
         catalog_filepath = api.download(
             roi=str(ROI_PATH),
             startdate=STARTDATE,
             enddate=ENDDATE,
-            bands=BANDS,
+            bands=bands,
             dst_folderpath=str(DATA_DIR),
             source="mpc",
             collection="sentinel-2-l2a",
             max_tiles=MAX_TILES,
-            max_cloudcover=MAX_CLOUDCOVER,
+            max_cloudcover=max_cloudcover,
             progress=True,
+            max_concurrent=max_concurrent,
         )
         elapsed = time.time() - t0
 
         import geopandas as gpd
         gdf = gpd.read_parquet(catalog_filepath)
         result["metrics"] = {
+            "bands": list(bands),
+            "max_cloudcover": max_cloudcover,
+            "max_concurrent": max_concurrent,
             "catalog_filepath": catalog_filepath,
             "granules": len(gdf),
             "archive_gb": round(_dir_gb(DATA_DIR), 1),
@@ -328,13 +442,13 @@ def step_download() -> int:
 
 def step_verify() -> int:
     """Read the new archive back and assert it is what P1 says a catalog is now: the new
-    columns, a v2 declaration stamp, the REAL per-item radiometry (not the zeros the old
-    archive carried), and SCL left un-offset."""
+    columns, a v2 declaration stamp, a per-row offset that MATCHES THE BASELINE THE ITEM
+    ITSELF DECLARES, and SCL left un-offset."""
     result = _result("verify", {
         "columns_match_catalog_COLUMNS": True,
         "declaration_stamp_is_s2_l2a": True,
-        "declaration_version": 2,
-        "reflectance_offset": EXPECTED_OFFSET,
+        "declaration_version_is_2": True,
+        "offset_matches_declared_baseline": True,
         "scale": EXPECTED_SCALE,
         "properties_non_empty": True,
         "scl_never_offset": True,
@@ -362,12 +476,13 @@ def step_verify() -> int:
         ]
         scl_offset_ok = _scl_gdal_tag_is_unoffset(gdf)
         version = (stamp_raw or {}).get("fsd_declaration_version")
+        offset_mismatches, baselines = _offset_matches_baseline(gdf)
 
         checks = {
             "columns_match_catalog_COLUMNS": list(gdf.columns) == COLUMNS,
             "declaration_stamp_is_s2_l2a": stamp == dm.S2_L2A_DECLARATION,
             "declaration_version_is_2": version == 2,
-            "reflectance_offset": offsets == [EXPECTED_OFFSET],
+            "offset_matches_declared_baseline": not offset_mismatches,
             "scale": scales == [EXPECTED_SCALE],
             "properties_non_empty": props_non_empty == len(gdf),
             "scl_never_offset": scl_offset_ok,
@@ -377,6 +492,8 @@ def step_verify() -> int:
             "granules": len(gdf),
             "columns": list(gdf.columns),
             "offsets_seen": offsets,
+            "baselines_seen": baselines,
+            "offset_mismatches": offset_mismatches[:5],
             "scales_seen": scales,
             "granules_with_properties": props_non_empty,
             "granules_missing_a_band": missing_bands[:5],
@@ -390,6 +507,45 @@ def step_verify() -> int:
         result["status"] = "fail"
         result["error"] = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
     return _write(result)
+
+
+def _offset_matches_baseline(gdf) -> tuple[list[dict], list[str]]:
+    """Per row: does the catalog's `offset` match what the item's OWN declared processing
+    baseline implies? Returns `(mismatches, baselines_seen)`.
+
+    ESA's rule (`fsd.sources._s2_radiometry`): offset is −1000 for baseline ≥ 04.00, else 0.
+    Reading the baseline out of the `properties` column (spec 58 D12's addition) and
+    re-deriving the offset checks the ingest end to end without assuming which provider or
+    which reprocessing this archive came from — MPC's original-2018 items declare a pre-04.00
+    baseline and correctly carry offset 0, while CDSE's 2023-reprocessed copies of the SAME
+    acquisitions declare N0500 and correctly carry −1000. A constant would call one of those
+    a failure.
+
+    A row whose `properties` names no baseline is a mismatch, not a pass: `offset_for_item`
+    raises rather than defaulting for exactly that reason (spec 34 §3a A1).
+    """
+    from fsd.sources._s2_radiometry import _BASELINE_PROPS, baseline_tuple
+
+    mismatches: list[dict] = []
+    baselines: set[str] = set()
+    for _, row in gdf.iterrows():
+        try:
+            props = json.loads(str(row["properties"]) or "{}")
+        except json.JSONDecodeError:
+            mismatches.append({"id": row["id"], "why": "properties is not valid JSON"})
+            continue
+        baseline = next((props[p] for p in _BASELINE_PROPS if p in props), None)
+        if baseline is None:
+            mismatches.append({"id": row["id"],
+                               "why": f"no baseline among {list(_BASELINE_PROPS)}"})
+            continue
+        baselines.add(str(baseline))
+        want = -1000 if baseline_tuple(str(baseline)) >= (4, 0) else 0
+        got = int(row["offset"])
+        if got != want:
+            mismatches.append({"id": row["id"], "baseline": baseline,
+                               "offset_in_catalog": got, "offset_from_baseline": want})
+    return mismatches, sorted(baselines)
 
 
 def _scl_gdal_tag_is_unoffset(gdf) -> bool:
@@ -564,18 +720,32 @@ def main(argv=None) -> int:
         prog="58_redownload_austria.py",
         description="Spec 58 P1 re-download of the Austria archive from MPC.",
     )
-    p.add_argument("step", choices=["discover", "free-disk", "download", "verify",
-                                    "build-cube"])
+    p.add_argument("step", choices=["reclaim", "discover", "free-disk", "download",
+                                    "verify", "build-cube"])
     p.add_argument("--yes-delete-the-archive", action="store_true",
-                   help="required by `free-disk`: confirms deleting the 74 GB archive")
+                   help="required by `free-disk`: confirms deleting the imagery archive")
+    p.add_argument("--yes-delete", action="store_true",
+                   help="required by `reclaim`: confirms removing stale derived artifacts")
+    p.add_argument("--bands", default=",".join(BANDS),
+                   help=f"comma-separated bands (default: {','.join(BANDS)}). Pass the SAME "
+                        "value to `discover` and `download`.")
+    p.add_argument("--max-cloudcover", type=float, default=MAX_CLOUDCOVER,
+                   help=f"discovery cloud-cover ceiling (default: {MAX_CLOUDCOVER}). "
+                        "Lowering it is the cheapest way to shrink a run that will not fit.")
+    p.add_argument("--max-concurrent", type=int, default=16,
+                   help="concurrent band-file transfers (default: 16). The source default "
+                        "is 4, which is far too low for a whole archive.")
     args = p.parse_args(argv)
+    bands = [b.strip() for b in args.bands.split(",") if b.strip()]
 
+    if args.step == "reclaim":
+        return step_reclaim(args.yes_delete)
     if args.step == "discover":
-        return step_discover()
+        return step_discover(bands, args.max_cloudcover)
     if args.step == "free-disk":
         return step_free_disk(args.yes_delete_the_archive)
     if args.step == "download":
-        return step_download()
+        return step_download(bands, args.max_cloudcover, args.max_concurrent)
     if args.step == "verify":
         return step_verify()
     return step_build_cube()
