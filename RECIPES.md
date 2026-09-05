@@ -431,7 +431,7 @@ raises `TypeError` (spec 35 §2a).
 **Implemented 2026-07-21** (spec 35, closing TODO #42): the footer route above is now
 `fsd.storage.fs.write_parquet`/`read_parquet`, generically, for any `.attrs`.
 
-## Re-stamp / inspect a catalog's `SourceDeclaration` (spec 35 §6)
+## Re-stamp / inspect a catalog's `CollectionDeclaration` (spec 35 §6)
 
 A catalog written before spec 35 (or by code that forgets to pass `declaration=` to
 `TileCatalog.append`) carries no `fsd:declaration` footer stamp — `flatten_catalog`/
@@ -444,17 +444,25 @@ read + re-write in place; the imagery it points at is untouched) and
 ```bash
 # stamp (or re-stamp) a catalog -- refuses to overwrite a *different* existing stamp
 # without --force; idempotent against the same declaration.
-.venv/bin/python -m fsd.catalog.restamp_cli /path/to/catalog.parquet --declaration s2_l2a
+.venv/bin/python -m fsd.catalog.restamp_cli /path/to/catalog.parquet --declaration sentinel-2-l2a
 
 # print the stamped declaration, footer-only (no row group read) -- the sidecar's
 # human-legibility without its separation risk.
 .venv/bin/python -m fsd.catalog.inspect_cli /path/to/catalog.parquet
 ```
 
-The four catalogs known to need this (spec 35 §6): the Austria `demo_e2e/imagery/
-catalog.parquet`, `mpc_baseline/imagery/`, the `rise` blob catalog from runbook
-`34-download-to-blob`, and per-cell slices in old run folders — folded into TODO #44's
-re-ingest rather than run separately.
+⚠️ **Since spec 58 P1 (2026-09-05) a re-stamp is no longer sufficient for the catalogs
+listed below.** D12 renamed `satellite` → `collection` and added `scale`/`properties`, with
+**no read-time shim** — `restamp_cli` rewrites the *footer*, not the columns, so a pre-P1
+catalog still fails on the schema after a successful re-stamp. `--declaration` also takes a
+**STAC collection id** now (`sentinel-2-l2a`), not the old short name (`s2_l2a`): the choices
+are a view over the `fsd.collections` registry.
+
+The catalogs that were on the spec-35 §6 re-stamp list now need a **re-ingest** instead: the
+Austria `demo_e2e/imagery/catalog.parquet` (→ `runbooks/58-redownload-austria-mpc.md`),
+`mpc_baseline/imagery/`, the `rise` blob catalog from runbook `34-download-to-blob`, and
+per-cell slices in old run folders. `restamp_cli` remains correct for a catalog that already
+has the P1 schema and is only missing (or carrying a wrong) stamp.
 
 ## Run the datacube fan-out on the AML cluster (spec 36, P2)
 

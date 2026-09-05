@@ -62,6 +62,7 @@ The pipeline was proven **locally** first; these stay as reference and for local
 | `28-stac-geometry-regen.md` | regenerate the demo STAC with the true slanted cell footprint (not the bbox) | ✅ |
 | `29-tier1-stacnotator-byo.md` | Tier-1 serving: a pre-styled XYZ URL consumed by STACNotator BYO-XYZ | ✅ |
 | `30-tier2-mini-mpc.md` | Tier-2 serving: outputs load into stock pgSTAC + titiler-pgstac (fsd = "just another MPC") | ✅ |
+| `58-redownload-austria-mpc.md` | **re-ingest the local Austria archive from MPC under spec 58 P1's catalog schema** — the D12 rename/new columns invalidated every pre-P1 catalog, and this retires the ~1000 DN radiometry debt with it. ⚠️ deletes the old 79 GB archive first (only ~25 GB free) | 🆕 not yet run |
 
 ## Track C — Azure P1 access probes & exploratory (one-offs)
 
