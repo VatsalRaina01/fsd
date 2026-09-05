@@ -206,6 +206,27 @@ different archive from the one you sized the disk for.
 - **If it fails / hangs / you need the machine:** **Ctrl-C is safe.** `mpc.download` skips any
   file already on disk, so re-running the same command resumes and costs only the transfers
   that were in flight. Run it as many times as needed until `pass: true`.
+- **If many transfers fail,** the run now prints them grouped by reason
+  (`[fsd.mpc.download] N/M transfers FAILED, by reason:`) and `_result_download.json` carries
+  `granules_incomplete` + `incomplete_examples`. Paste both.
+
+#### ⚠️ The 2026-09-05 failure, and why the fix is not "lower the concurrency"
+
+The first attempt lost **393 of 552 files**. The shape of the loss says what happened: 159
+files landed at a steady rate over 44 minutes, then the rest failed inside ~2 minutes; the
+survivors were a contiguous **newest-first** block (2018-08-09 → 09-28) and the granules with
+missing bands sat exactly at its old edge. That is an expiring credential, not throttling —
+a throttled run degrades gradually and fails a scattered *fraction*.
+
+Cause: an MPC SAS token lives ~45 min, and `download()` signed every href **at discovery**,
+before a single byte moved. Anything still queued when the token aged out died at once.
+`sources/mpc.py` already documented this hazard for the AML fan-out (`discover_shard_rows`
+discovers *unsigned* on purpose); `download()` was the path that still signed up front.
+
+**Fixed (2026-09-05): both paths now sign inside the transfer worker, once per attempt**, so
+a token is minted seconds before use and a retry re-signs rather than replaying a dead one.
+**Keep `--max-concurrent 16`.** Lowering it would have made the old failure *worse* — fewer
+files finish inside one token's lifetime — and it was never the cause.
 - **If the disk fills anyway:** stop, paste `_result_download.json`, and do not delete anything
   else — the numbers say what over-ran the estimate.
 

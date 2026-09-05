@@ -4,6 +4,29 @@ Living record of how `fsd` differs from the legacy repos for behavior that **is*
 carried over (renames, restructures, behavioral tweaks). Pure removals go in
 `DROPPED.md`.
 
+## MPC hrefs are signed per transfer, not at discovery (2026-09-05)
+
+`sources.mpc.download` used to sign every asset href during STAC discovery
+(`_search_items` -> `pc.sign_inplace`), then transfer the whole work list. Both it and
+`download_shard` now discover **unsigned** and apply the signer inside
+`_transfer_and_stamp_one`, **once per attempt**.
+
+**Why:** an MPC SAS token lives ~45 minutes. A whole-archive download runs longer, so every
+asset still queued when the token aged out failed at once. Measured on the first real run of
+`runbooks/58-redownload-austria-mpc.md`: 159 of 552 files landed at a steady rate over 44
+minutes, then the remaining 393 failed within ~2 -- the tail of a newest-first work list, with
+the part-downloaded granules sitting exactly at its boundary. Signing per *attempt* (not per
+submission) also stops a retry from replaying a token that has since expired.
+
+`sources/mpc.py` already documented this hazard for the AML fan-out -- `discover_shard_rows`
+discovers unsigned precisely so a token cannot expire between job submit and job start.
+`download()` was the path that still signed up front.
+
+**Also:** a failed download now prints its failures **grouped by reason**
+(`_print_failure_summary`). `DownloadResult.failures` had always carried `(src_url, reason)`,
+but nothing printed it and `api.download` discards the result -- so a run could lose 71 % of
+its files and leave no way to tell throttling from an expired token from a network fault.
+
 ## `api.download` gained `max_concurrent` (2026-09-05)
 
 `download` now takes `max_concurrent` — how many band files transfer at once. It reaches
