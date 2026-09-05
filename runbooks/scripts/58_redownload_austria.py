@@ -392,6 +392,7 @@ def step_download(bands: list[str], max_cloudcover: float, max_concurrent: int) 
     result = _result("download", {
         "catalog_written": True,
         "granules_between": [150, MAX_TILES],
+        "granules_incomplete": 0,
     })
     try:
         import time
@@ -417,19 +418,42 @@ def step_download(bands: list[str], max_cloudcover: float, max_concurrent: int) 
         )
         elapsed = time.time() - t0
 
-        import geopandas as gpd
-        gdf = gpd.read_parquet(catalog_filepath)
+        from fsd.storage import fs
+        gdf = fs.read_parquet(catalog_filepath)
+        archive_bands, uneven = _bands_in_catalog(gdf)
+        # A partial run is the normal outcome of a throttled or interrupted download, and
+        # `granules` alone cannot tell "58 complete granules" from "58 granules of which 8
+        # are missing their 10 m bands". Report the shortfall so the pasted `_result.json`
+        # is diagnosable on its own -- `mpc.download` prints the failure REASONS
+        # (`_print_failure_summary`), this records the SHAPE of what is missing.
+        want = set(bands)
+        per_granule = {
+            r["id"]: want - {f.rsplit(".", 1)[0] for f in str(r["files"]).split(",")}
+            for _, r in gdf.iterrows()
+        }
+        incomplete = {gid: sorted(missing) for gid, missing in per_granule.items() if missing}
         result["metrics"] = {
             "bands": list(bands),
             "max_cloudcover": max_cloudcover,
             "max_concurrent": max_concurrent,
             "catalog_filepath": catalog_filepath,
             "granules": len(gdf),
+            "archive_bands": archive_bands,
+            "granules_incomplete": len(incomplete),
+            "incomplete_examples": dict(list(incomplete.items())[:5]),
+            "granules_uneven": uneven[:5],
+            "files_on_disk": sum(1 for _ in DATA_DIR.rglob("*.tif")),
             "archive_gb": round(_dir_gb(DATA_DIR), 1),
             "elapsed_s": round(elapsed, 1),
             "free_gb_after": round(_free_gb(FSD_ROOT), 1),
         }
-        result["pass"] = os.path.exists(catalog_filepath) and 150 <= len(gdf) <= MAX_TILES
+        # Re-run the SAME command to resume: `mpc.download` skips what is already on disk,
+        # so a partial run costs only the missing files next time.
+        result["pass"] = (
+            os.path.exists(catalog_filepath)
+            and 150 <= len(gdf) <= MAX_TILES
+            and not incomplete
+        )
         if not result["pass"]:
             result["status"] = "fail"
     except Exception as exc:  # noqa: BLE001

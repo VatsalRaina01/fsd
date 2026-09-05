@@ -276,9 +276,38 @@ def _select_item_files(
     return selected
 
 
+def _print_failure_summary(failures: list[tuple[str, str]], *, total: int) -> None:
+    """Print WHY transfers failed, grouped by reason -- not just how many.
+
+    `DownloadResult.failures` has always carried `(src_url, reason)`, but nothing ever
+    printed it: the progress line shows `fail=N` and the caller (`api.download`) discards
+    the whole result. A 2026-09-05 run of `runbooks/58-redownload-austria-mpc.md` lost 393
+    of 552 files and left no way to tell throttling from an expired token from a network
+    fault -- the reasons were in memory and thrown away. Grouped, because a throttled run
+    produces hundreds of copies of one message and the distinct set is the diagnosis.
+    """
+    if not failures:
+        return
+    import collections
+
+    by_reason = collections.Counter(reason for _src, reason in failures)
+    print(f"[fsd.mpc.download] {len(failures)}/{total} transfers FAILED, by reason:",
+          flush=True)
+    for reason, n in by_reason.most_common(10):
+        # One line per distinct reason, truncated: a rasterio/adlfs traceback string can run
+        # to kilobytes and the first line is the diagnosis.
+        first_line = str(reason).splitlines()[0][:300] if reason else "unknown"
+        print(f"[fsd.mpc.download]   {n:5d} x {first_line}", flush=True)
+    if len(by_reason) > 10:
+        print(f"[fsd.mpc.download]   ... and {len(by_reason) - 10} more distinct reason(s)",
+              flush=True)
+    print(f"[fsd.mpc.download] example failed url: {failures[0][0][:200]}", flush=True)
+
+
 def _transfer_and_stamp_one(
     src_url: str, dst_path: str, *, band: str, offset: int,
     declaration: CollectionDeclaration,
+    sign: Callable[[str], str] | None = None,
     tries: int = 3, base_delay: float = 0.5,
 ) -> tuple[bool, str]:
     """Byte-copy one already-COG asset, then stamp the declared GDAL scale/offset
@@ -291,6 +320,15 @@ def _transfer_and_stamp_one(
     Stamping needs a real LOCAL file, so when `dst_path` is remote the transfer lands in
     local scratch first, gets stamped there, and is then pushed to `dst_path`. Idempotent
     skip on an existing non-empty `dst_path`. Returns `(ok, reason)`.
+
+    `sign`, when given, is applied to `src_url` **inside the retry loop, immediately before
+    each attempt** -- so the SAS token is minted seconds before it is used, never at
+    discovery time. An MPC token lives ~45 min; a whole-archive `download()` runs longer
+    than that, so signing up front meant every asset still queued when the token aged out
+    failed at once. (Observed 2026-09-05: 159 of 552 files landed over 44 minutes, then the
+    remaining 393 failed within ~2 -- the tail of a newest-first work list.) Signing per
+    ATTEMPT rather than per submission also means a retry after a long queue wait re-signs
+    instead of retrying with the same dead token.
     """
     import shutil
     import tempfile
@@ -311,7 +349,7 @@ def _transfer_and_stamp_one(
     try:
         for attempt in range(tries):
             try:
-                fs.transfer(src_url, scratch)
+                fs.transfer(sign(src_url) if sign is not None else src_url, scratch)
                 stamp_or_reencode(
                     scratch,
                     # reflectance-unit offset to match the declared scale: a
@@ -409,8 +447,14 @@ def download(
         fs.makedirs(root_folderpath, exist_ok=True)
 
     roi_gdf = _roi_gdf(roi)
-    items = _search_items(roi_gdf, startdate, enddate, max_cloudcover=max_cloudcover,
-                           collection=collection)
+    # UNSIGNED discovery, then sign per transfer below -- an MPC SAS token lives ~45 min,
+    # and a whole-archive download runs longer, so hrefs signed here would age out mid-run
+    # and take the entire tail of the work list with them (observed 2026-09-05: 159 of 552
+    # files, then 393 instant failures). Same reasoning `discover_shard_rows` already
+    # documents for the AML fan-out; `download()` was the path that still signed up front.
+    sign = _import_pc_sign()
+    items = _search_items_unsigned(roi_gdf, startdate, enddate, max_cloudcover=max_cloudcover,
+                                    collection=collection)
     items = _dedupe_reprocessed_items(items)
     tiles = _finalize_catalog_gdf(
         _items_to_gdf(items, collection=collection, declaration=declaration),
@@ -446,7 +490,7 @@ def download(
             if should_stop is not None and should_stop():
                 break
             futs[pool.submit(_transfer_and_stamp_one, src, dst, band=band, offset=offset,
-                              declaration=declaration)] = (src, dst, tid)
+                              declaration=declaration, sign=sign)] = (src, dst, tid)
         for fut in concurrent.futures.as_completed(futs):
             src, dst, tid = futs[fut]
             ok, reason = fut.result()
@@ -462,6 +506,7 @@ def download(
                     flush=True,
                 )
 
+    _print_failure_summary(failures, total=len(work))
     successful = _append_downloaded(catalog, tile_meta, results, declaration)
 
     return DownloadResult(
@@ -605,10 +650,11 @@ def download_shard(
                 "geometry": shapely.from_wkt(row["geometry"])
                 if isinstance(row["geometry"], str) else row["geometry"],
             })
-            signed_href = sign(row["href"])
+            # Signed inside the worker (not here at submit): a big shard's last rows would
+            # otherwise queue behind the earlier ones holding a token minted at submit time.
             fut = pool.submit(
-                _transfer_and_stamp_one, signed_href, row["dst"],
-                band=row["band"], offset=row["offset"], declaration=declaration,
+                _transfer_and_stamp_one, row["href"], row["dst"],
+                band=row["band"], offset=row["offset"], declaration=declaration, sign=sign,
             )
             futs[fut] = (row["href"], row["dst"], tid)
         for fut in concurrent.futures.as_completed(futs):
@@ -626,6 +672,7 @@ def download_shard(
                     flush=True,
                 )
 
+    _print_failure_summary(failures, total=len(rows))
     successful = _append_downloaded(catalog, tile_meta, results, declaration)
 
     return DownloadResult(

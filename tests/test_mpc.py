@@ -13,6 +13,7 @@ from pystac.extensions.raster import RasterExtension
 
 from fsd import collections as _collections
 from fsd import config
+from fsd.catalog.declaration import S2_L2A_DECLARATION
 from fsd.sources import _s2_radiometry, mpc
 
 
@@ -339,6 +340,9 @@ def _reprocessing_pair_plus_control(cloud=5.0):
 def test_query_catalog_drops_the_duplicate(monkeypatch):
     items = _reprocessing_pair_plus_control()
     monkeypatch.setattr(mpc, "_search_items", lambda *a, **k: items)
+    # `download()` discovers unsigned now (spec: sign per transfer, not at discovery),
+    # so stub both search entry points -- `query_catalog` still uses the signed one.
+    monkeypatch.setattr(mpc, "_search_items_unsigned", lambda *a, **k: items)
 
     roi = gpd.GeoDataFrame(geometry=[sg.box(0.2, 0.2, 0.5, 0.5)], crs="EPSG:4326")
     gdf = mpc.query_catalog(roi, datetime.datetime(2021, 1, 1), datetime.datetime(2022, 12, 31))
@@ -352,6 +356,9 @@ def test_query_catalog_drops_the_duplicate(monkeypatch):
 def test_download_drops_the_duplicate_before_transfer(monkeypatch, tmp_path):
     items = _reprocessing_pair_plus_control()
     monkeypatch.setattr(mpc, "_search_items", lambda *a, **k: items)
+    # `download()` discovers unsigned now (spec: sign per transfer, not at discovery),
+    # so stub both search entry points -- `query_catalog` still uses the signed one.
+    monkeypatch.setattr(mpc, "_search_items_unsigned", lambda *a, **k: items)
 
     written = []
 
@@ -397,6 +404,9 @@ def test_download_end_to_end_mocked(monkeypatch, tmp_path):
         ),
     ]
     monkeypatch.setattr(mpc, "_search_items", lambda *a, **k: items)
+    # `download()` discovers unsigned now (spec: sign per transfer, not at discovery),
+    # so stub both search entry points -- `query_catalog` still uses the signed one.
+    monkeypatch.setattr(mpc, "_search_items_unsigned", lambda *a, **k: items)
 
     written = []
 
@@ -437,6 +447,9 @@ def test_download_accepts_remote_root_and_stamps_via_local_scratch(tmp_path, mon
                    assets={"B04": "https://example/t1/B04.tif?sig=1"}),
     ]
     monkeypatch.setattr(mpc, "_search_items", lambda *a, **k: items)
+    # `download()` discovers unsigned now (spec: sign per transfer, not at discovery),
+    # so stub both search entry points -- `query_catalog` still uses the signed one.
+    monkeypatch.setattr(mpc, "_search_items_unsigned", lambda *a, **k: items)
 
     def _fake_transfer(src_url, dst_url, **kw):
         _write_fake_cog(dst_url, value=1500)
@@ -593,3 +606,100 @@ def test_import_pc_sign_goes_through_the_same_guard(monkeypatch):
     """`_import_pc_sign` is the download-path entry; it must not bypass the message."""
     monkeypatch.setattr(mpc, "_import_pc", lambda: types.SimpleNamespace(sign="SIGN"))
     assert mpc._import_pc_sign() == "SIGN"
+
+
+def test_download_prints_why_transfers_failed_not_just_how_many(capsys):
+    """A failed download must say WHY, grouped by reason.
+
+    `DownloadResult.failures` has always carried `(src_url, reason)`, but nothing printed
+    it: the progress line shows `fail=N`, and `api.download` discards the result entirely.
+    A 2026-09-05 run of `runbooks/58-redownload-austria-mpc.md` lost 393 of 552 files and
+    left no way to distinguish throttling from an expired token from a network fault --
+    the diagnosis was in memory and thrown away.
+
+    Grouped by distinct reason, because a throttled run yields hundreds of copies of one
+    message; the distinct set is the finding, the counts are the scale.
+    """
+    failures = [
+        (f"https://x/{i}/B04.tif", "HTTP 429 Too Many Requests") for i in range(300)
+    ] + [
+        (f"https://x/{i}/B08.tif", "HTTP 403 Server failed to authenticate") for i in range(9)
+    ]
+    mpc._print_failure_summary(failures, total=552)
+    out = capsys.readouterr().out
+
+    assert "309/552 transfers FAILED" in out
+    assert "300 x HTTP 429 Too Many Requests" in out
+    assert "9 x HTTP 403 Server failed to authenticate" in out
+    # The url of a failure is what you paste into a bug report or retry by hand.
+    assert "https://x/0/B04.tif" in out
+
+
+def test_failure_summary_is_silent_when_nothing_failed(capsys):
+    """A clean run must not print a failure block at all."""
+    mpc._print_failure_summary([], total=10)
+    assert capsys.readouterr().out == ""
+
+
+def test_failure_summary_truncates_a_multiline_reason(capsys):
+    """A rasterio/adlfs failure arrives as a whole traceback string, kilobytes long. Only
+    the first line is the diagnosis, so the summary stays readable at 300 failures."""
+    reason = "RuntimeError: boom\n" + "\n".join(f"  frame {i}" for i in range(50))
+    mpc._print_failure_summary([("https://x/a.tif", reason)], total=1)
+    out = capsys.readouterr().out
+
+    assert "1 x RuntimeError: boom" in out
+    assert "frame 7" not in out
+
+
+def test_transfer_signs_per_attempt_so_a_retry_never_reuses_a_dead_token(monkeypatch, tmp_path):
+    """`sign` runs inside the retry loop, once per attempt -- not once per submission.
+
+    This is the fix for the 2026-09-05 archive run: an MPC SAS token lives ~45 min, and
+    `download()` signed every href at DISCOVERY, so 159 of 552 files landed over 44 minutes
+    and the remaining 393 -- still queued behind them -- failed at once when the token aged
+    out. A retry that reuses the same expired token is the same bug one level down, so the
+    signature is minted per attempt.
+    """
+    attempts = []
+
+    def _fake_sign(url):
+        attempts.append(url)
+        return f"{url}?sig={len(attempts)}"
+
+    transferred = []
+
+    def _flaky_transfer(src, dst):
+        transferred.append(src)
+        if len(transferred) < 3:
+            raise RuntimeError("403 Server failed to authenticate")
+
+    monkeypatch.setattr(mpc.fs, "transfer", _flaky_transfer)
+    monkeypatch.setattr(mpc, "stamp_or_reencode", lambda *a, **kw: None)
+
+    ok, reason = mpc._transfer_and_stamp_one(
+        "https://mpc/B04.tif", str(tmp_path / "B04.tif"),
+        band="B04", offset=0, declaration=S2_L2A_DECLARATION,
+        sign=_fake_sign, tries=3, base_delay=0,
+    )
+
+    assert (ok, reason) == (True, "ok")
+    # Three attempts, three DISTINCT signatures -- not one token reused three times.
+    assert transferred == [
+        "https://mpc/B04.tif?sig=1",
+        "https://mpc/B04.tif?sig=2",
+        "https://mpc/B04.tif?sig=3",
+    ]
+
+
+def test_transfer_without_a_signer_passes_the_url_through(monkeypatch, tmp_path):
+    """`sign=None` (CDSE, a local file, any already-signed url) must not be touched."""
+    seen = []
+    monkeypatch.setattr(mpc.fs, "transfer", lambda src, dst: seen.append(src))
+    monkeypatch.setattr(mpc, "stamp_or_reencode", lambda *a, **kw: None)
+
+    ok, _ = mpc._transfer_and_stamp_one(
+        "https://mpc/B04.tif", str(tmp_path / "B04.tif"),
+        band="B04", offset=0, declaration=S2_L2A_DECLARATION,
+    )
+    assert ok and seen == ["https://mpc/B04.tif"]

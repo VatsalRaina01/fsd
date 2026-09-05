@@ -128,6 +128,14 @@ def test_download_cli_roi_mode_reads_creds_from_blob_url(monkeypatch):
 # --- test: mpc.download_shard signs on the node + reuses _transfer_and_stamp_one --
 
 def test_mpc_download_shard_signs_on_node_and_transfers(monkeypatch, tmp_path):
+    """The shard hands its transfer worker a SIGNER, and the worker applies it.
+
+    Signing moved from submit time into the worker (2026-09-05): a big shard's last rows
+    would otherwise wait in the queue holding a token minted when the whole shard was
+    submitted. So this asserts the `sign` callable REACHES the worker and produces the
+    signed url there -- not that `download_shard` called it eagerly, which is the thing
+    that was wrong.
+    """
     signed = {}
 
     def _fake_sign(url):
@@ -136,8 +144,9 @@ def test_mpc_download_shard_signs_on_node_and_transfers(monkeypatch, tmp_path):
 
     calls = []
 
-    def _fake_transfer(src, dst, *, band, offset, **kw):
-        calls.append((src, dst, band, offset))
+    def _fake_transfer(src, dst, *, band, offset, sign=None, **kw):
+        # The worker's own contract: sign immediately before the transfer.
+        calls.append((sign(src) if sign else src, dst, band, offset))
         return True, "ok"
 
     monkeypatch.setattr(mpc, "_transfer_and_stamp_one", _fake_transfer)

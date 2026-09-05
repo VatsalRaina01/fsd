@@ -16,7 +16,11 @@ fixed one real bug and two untested acceptance criteria, all recorded in "Most r
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
 2. **Finish [`runbooks/58-redownload-austria-mpc.md`](runbooks/58-redownload-austria-mpc.md)** —
-   **IN FLIGHT (2026-09-05), step 3 (download) running.** Steps 0–2 done; all of `tests/outputs/`
+   **IN FLIGHT (2026-09-05), step 3 (download) partially done: 159 of 552 files.**
+   ⚠️ **The first attempt hit a real bug, now fixed:** `mpc.download` signed every href at
+   STAC discovery, but an MPC SAS token lives ~45 min, so 393 files still queued when it aged
+   out failed at once. Both MPC paths now sign inside the transfer worker, once per attempt.
+   **Re-run step 3 unchanged (`--max-concurrent 16`) — it resumes.** Steps 0–2 done; all of `tests/outputs/`
    was deleted. **Scope settled because full fidelity did not fit** (~117 GB vs ~110 GB free):
    the archive is **`B04,B08,SCL` at `max_cloudcover=50`** — 184 granules, ~89 GB, 0.483
    GB/granule. **B8A is NOT in this archive**; `demos/e2e_austria.py` still requests it, and
