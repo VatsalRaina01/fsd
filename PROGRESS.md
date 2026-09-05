@@ -15,11 +15,13 @@ fixed one real bug and two untested acceptance criteria, all recorded in "Most r
 `spike/rslearn` (intentional). **`v0.1.0` is cut and pushed.**
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Run [`runbooks/58-redownload-austria-mpc.md`](runbooks/58-redownload-austria-mpc.md)** — written
-   2026-09-05, not yet run. It re-ingests the local Austria archive from MPC under P1's schema and
-   retires the ~1000 DN radiometry debt. ⚠️ Step 2 **deletes the existing 79 GB archive** (only
-   ~25 GB free), so step 1 discovers and sizes the run before anything is destroyed. Then spec 58
-   **P2** (`sentinel-1-rtc`).
+2. **Finish [`runbooks/58-redownload-austria-mpc.md`](runbooks/58-redownload-austria-mpc.md)** —
+   **IN FLIGHT (2026-09-05).** Steps 0–2 done: the old 79 GB archive is deleted and the stale
+   derived artifacts reclaimed (~110 GB free). ⚠️ **The full-fidelity run does not fit:** MPC
+   measures **0.549 GB/granule** (the CDSE archive was 0.384), so 213 granules × 4 bands is
+   **~117 GB** against ~110 GB of headroom — step 1 returns `pass: false` for exactly that.
+   `discover` takes `--bands`/`--max-cloudcover` to price a smaller run in seconds; pick a lever,
+   then run step 3 with `--max-concurrent 16`. Then spec 58 **P2** (`sentinel-1-rtc`).
 3. `gh issue list` — the open work. Nothing here is blocked on a decision you have to remember.
 4. Otherwise pick from **THE ORDER** below, which is still sequenced.
 
@@ -112,7 +114,7 @@ instruction above.
 | ~~**5**~~ | ~~**[#94](https://github.com/nikhilsrajan/fsd/issues/94)** — re-run the `PROGRESS.md` split~~ | **DONE 2026-09-03** — 1,737 lines moved verbatim to the archive; this file **19,970 → 1,762 words**; four defects retired, one of them a test that never ran | → **6**, now current |
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
-| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Next: run `runbooks/58-redownload-austria-mpc.md` (written 2026-09-05, not yet run) → P2 | → **9** |
+| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Next: finish `runbooks/58-redownload-austria-mpc.md` (**in flight** — steps 0–2 done; the full-fidelity run is ~117 GB vs ~110 GB free, so it needs a scope lever) → P2 | → **9** |
 | **9** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
 
 **⚠️ The order changed again (user, 2026-09-04).** #93 was step 8 and CURRENT; the user promoted
