@@ -620,18 +620,23 @@ def test_download_prints_why_transfers_failed_not_just_how_many(capsys):
     Grouped by distinct reason, because a throttled run yields hundreds of copies of one
     message; the distinct set is the finding, the counts are the scale.
     """
+    # Reasons carry the exception TYPE first (`_failure_reason`), and the message is the
+    # asset url -- unique per file. Grouping must key on the type or nothing collapses.
     failures = [
-        (f"https://x/{i}/B04.tif", "HTTP 429 Too Many Requests") for i in range(300)
+        (f"https://x/{i}/B04.tif", f"FileNotFoundError: https://x/{i}/B04.tif")
+        for i in range(300)
     ] + [
-        (f"https://x/{i}/B08.tif", "HTTP 403 Server failed to authenticate") for i in range(9)
+        (f"https://x/{i}/B08.tif", "TimeoutError: read timed out") for i in range(9)
     ]
     mpc._print_failure_summary(failures, total=552)
     out = capsys.readouterr().out
 
     assert "309/552 transfers FAILED" in out
-    assert "300 x HTTP 429 Too Many Requests" in out
-    assert "9 x HTTP 403 Server failed to authenticate" in out
-    # The url of a failure is what you paste into a bug report or retry by hand.
+    assert "300 x FileNotFoundError" in out
+    assert "9 x TimeoutError" in out
+    # One example message + url per kind: the count says how bad, the example says what to
+    # do about it, and the url is what you retry or paste into a bug report.
+    assert "e.g. TimeoutError: read timed out" in out
     assert "https://x/0/B04.tif" in out
 
 
@@ -648,8 +653,32 @@ def test_failure_summary_truncates_a_multiline_reason(capsys):
     mpc._print_failure_summary([("https://x/a.tif", reason)], total=1)
     out = capsys.readouterr().out
 
-    assert "1 x RuntimeError: boom" in out
+    assert "1 x RuntimeError" in out
+    assert "e.g. RuntimeError: boom" in out
     assert "frame 7" not in out
+
+
+def test_failure_reason_puts_the_exception_type_first():
+    """`str(exc)` alone is useless on the real failure path: fsspec/adlfs raise
+    `FileNotFoundError(url)`, so the message IS the asset url -- unique per file. A
+    2026-09-06 run reported 74 failures as 74 one-off "reasons", each a different url.
+    The type is the diagnosis, so it goes first."""
+    assert mpc._failure_reason(FileNotFoundError("http://x/a.tif")) == \
+        "FileNotFoundError: http://x/a.tif"
+    # An exception with no message must not produce a dangling "OSError: ".
+    assert mpc._failure_reason(OSError()) == "OSError"
+    assert mpc._failure_reason(None) == "unknown"
+
+
+def test_failure_kind_groups_on_the_type_not_the_message():
+    """The grouping key is the type, so N failures whose messages are N distinct urls
+    collapse to one line."""
+    urls = [f"FileNotFoundError: http://x/{i}.tif" for i in range(50)]
+    assert {mpc._failure_kind(u) for u in urls} == {"FileNotFoundError"}
+    assert mpc._failure_kind("OSError") == "OSError"
+    # A reason with no type prefix keeps its own text -- never mangled into a fake type.
+    assert mpc._failure_kind("connection reset by peer") == "connection reset by peer"
+    assert mpc._failure_kind("") == "unknown"
 
 
 def test_transfer_signs_per_attempt_so_a_retry_never_reuses_a_dead_token(monkeypatch, tmp_path):

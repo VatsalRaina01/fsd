@@ -22,10 +22,18 @@ submission) also stops a retry from replaying a token that has since expired.
 discovers unsigned precisely so a token cannot expire between job submit and job start.
 `download()` was the path that still signed up front.
 
-**Also:** a failed download now prints its failures **grouped by reason**
-(`_print_failure_summary`). `DownloadResult.failures` had always carried `(src_url, reason)`,
-but nothing printed it and `api.download` discards the result -- so a run could lose 71 % of
-its files and leave no way to tell throttling from an expired token from a network fault.
+**Also:** a failed download now prints its failures **grouped by exception type**
+(`_print_failure_summary`), with one example message + url per type. `DownloadResult.failures`
+had always carried `(src_url, reason)`, but nothing printed it and `api.download` discards the
+result -- so a run could lose 71 % of its files and leave no way to tell throttling from an
+expired token from a network fault.
+
+The grouping keys on the **type** because `reason` used to be a bare `str(exc)`, and on the
+real failure path fsspec/adlfs raise `FileNotFoundError(url)` -- so the "reason" was the asset
+url, unique per file. The first version of this summary duly printed a 2026-09-06 run's 74
+failures as 74 lines of `1 x <url>`, which is the raw list with extra steps. `_failure_reason`
+now formats `"<Type>: <message>"` and `_failure_kind` groups on the type, collapsing those to
+`74 x FileNotFoundError`.
 
 ## `api.download` gained `max_concurrent` (2026-09-05)
 
