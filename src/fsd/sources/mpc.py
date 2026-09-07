@@ -276,32 +276,75 @@ def _select_item_files(
     return selected
 
 
+def _failure_reason(exc: BaseException | None) -> str:
+    """`"<ExceptionType>: <message>"` -- the type FIRST, because the type is the diagnosis.
+
+    A bare `str(exc)` is what this used to return, and on the real failure path it is
+    useless: fsspec/adlfs raise `FileNotFoundError(url)`, so `str(exc)` is just the asset
+    URL. A 2026-09-06 run reported "74 transfers FAILED" as 74 distinct one-off "reasons",
+    each a different URL, plus one `unknown` from an exception whose message was empty --
+    the grouping could not group and said nothing about the cause. With the type in front,
+    74 timeouts collapse to one line that names them.
+    """
+    if exc is None:
+        return "unknown"
+    message = str(exc).strip()
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+
+def _failure_kind(reason: str) -> str:
+    """The GROUPING key for a failure: the exception type, not the whole message.
+
+    `_failure_reason` formats `"<Type>: <message>"`, and for the common transfer failure the
+    message is the asset URL -- unique per file. Grouping on the full string therefore made
+    every failure its own group: a 2026-09-06 run printed "74 transfers FAILED" as 74 lines
+    of `1 x <url>`, which is the raw list with extra steps. Cutting at the first `": "`
+    collapses those to one `74 x FileNotFoundError` line, which is the finding.
+    """
+    head = str(reason).splitlines()[0] if reason else ""
+    kind, sep, _rest = head.partition(": ")
+    # Only treat the head as a type name when it looks like one -- a reason with no type
+    # prefix (or a message containing an early colon) keeps its own first line.
+    if sep and kind and " " not in kind:
+        return kind
+    return head[:120] or "unknown"
+
+
 def _print_failure_summary(failures: list[tuple[str, str]], *, total: int) -> None:
-    """Print WHY transfers failed, grouped by reason -- not just how many.
+    """Print WHY transfers failed, grouped by exception type -- not just how many.
 
     `DownloadResult.failures` has always carried `(src_url, reason)`, but nothing ever
     printed it: the progress line shows `fail=N` and the caller (`api.download`) discards
     the whole result. A 2026-09-05 run of `runbooks/58-redownload-austria-mpc.md` lost 393
     of 552 files and left no way to tell throttling from an expired token from a network
-    fault -- the reasons were in memory and thrown away. Grouped, because a throttled run
-    produces hundreds of copies of one message and the distinct set is the diagnosis.
+    fault -- the reasons were in memory and thrown away.
+
+    Grouped by `_failure_kind`, with one example message per kind. The example matters as
+    much as the count: the count says how bad, the example says what to do about it.
     """
     if not failures:
         return
     import collections
 
-    by_reason = collections.Counter(reason for _src, reason in failures)
-    print(f"[fsd.mpc.download] {len(failures)}/{total} transfers FAILED, by reason:",
+    by_kind: collections.Counter = collections.Counter()
+    example: dict[str, tuple[str, str]] = {}
+    for src, reason in failures:
+        kind = _failure_kind(reason)
+        by_kind[kind] += 1
+        example.setdefault(kind, (src, reason))
+
+    print(f"[fsd.mpc.download] {len(failures)}/{total} transfers FAILED, by kind:",
           flush=True)
-    for reason, n in by_reason.most_common(10):
-        # One line per distinct reason, truncated: a rasterio/adlfs traceback string can run
-        # to kilobytes and the first line is the diagnosis.
-        first_line = str(reason).splitlines()[0][:300] if reason else "unknown"
-        print(f"[fsd.mpc.download]   {n:5d} x {first_line}", flush=True)
-    if len(by_reason) > 10:
-        print(f"[fsd.mpc.download]   ... and {len(by_reason) - 10} more distinct reason(s)",
+    for kind, n in by_kind.most_common(10):
+        src, reason = example[kind]
+        print(f"[fsd.mpc.download]   {n:5d} x {kind}", flush=True)
+        # A rasterio/adlfs failure arrives as a kilobyte traceback; the first line is the
+        # diagnosis and the url is what you retry or paste into a bug report.
+        print(f"[fsd.mpc.download]           e.g. {str(reason).splitlines()[0][:200]}",
               flush=True)
-    print(f"[fsd.mpc.download] example failed url: {failures[0][0][:200]}", flush=True)
+        print(f"[fsd.mpc.download]           url  {src[:200]}", flush=True)
+    if len(by_kind) > 10:
+        print(f"[fsd.mpc.download]   ... and {len(by_kind) - 10} more kind(s)", flush=True)
 
 
 def _transfer_and_stamp_one(
@@ -368,7 +411,7 @@ def _transfer_and_stamp_one(
                 if attempt == tries - 1:
                     break
                 time.sleep(base_delay * (2**attempt))
-        return False, str(last) if last else "unknown"
+        return False, _failure_reason(last)
     finally:
         if scratch_dir is not None:
             shutil.rmtree(scratch_dir, ignore_errors=True)
