@@ -8,37 +8,32 @@ this — read [`docs/history.md`](docs/history.md).
 
 ## Resuming after a break — start here
 
-**Spec 58 P1 is implemented, reviewed, merged and pushed. The next action is a run-book you execute.**
-As of **2026-09-05** P1 landed on `main` via `--no-ff` (worktree + branch pruned); review found and
-fixed one real bug and two untested acceptance criteria, all recorded in "Most recent entry" below.
-`origin/main` is at `3217db7`. `main` is otherwise clean and unmerged-branch-free except
-`spike/rslearn` (intentional). **`v0.1.0` is cut and pushed.**
+**Spec 58 P1 is landed and its re-download has run green. The next action is spec 58 P2.**
+P1 merged to `main` 2026-09-05 (review found one real bug and two untested ACs); the
+re-download run-book ran **2026-09-07**, all steps green including the QGIS eyeball, and found
+**three more real bugs** that two review passes had missed — see "Most recent entry". `main` is
+clean, no unmerged branches except `spike/rslearn` (intentional). **`v0.1.0` is cut and pushed.**
+⚠️ **`main` is ~12 commits AHEAD of `origin/main` — everything since P1 is unpushed.**
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Finish [`runbooks/58-redownload-austria-mpc.md`](runbooks/58-redownload-austria-mpc.md)** —
-   **IN FLIGHT (2026-09-05), step 3 (download) partially done: 159 of 552 files.**
-   ⚠️ **The first attempt hit a real bug, now fixed:** `mpc.download` signed every href at
-   STAC discovery, but an MPC SAS token lives ~45 min, so 393 files still queued when it aged
-   out failed at once. Both MPC paths now sign inside the transfer worker, once per attempt.
-   **Re-run step 3 unchanged (`--max-concurrent 16`) — it resumes.** Steps 0–2 done; all of `tests/outputs/`
-   was deleted. **Scope settled because full fidelity did not fit** (~117 GB vs ~110 GB free):
-   the archive is **`B04,B08,SCL` at `max_cloudcover=50`** — 184 granules, ~89 GB, 0.483
-   GB/granule. **B8A is NOT in this archive**; `demos/e2e_austria.py` still requests it, and
-   spec 58 P3's AC17 needs it (`nir08` == B8A), so a supplementary pass is deferred, not
-   avoided. Steps 4–5 need no flags (they read the band set off the catalog). Then spec 58
-   **P2** (`sentinel-1-rtc`).
-3. `gh issue list` — the open work. Nothing here is blocked on a decision you have to remember.
-4. Otherwise pick from **THE ORDER** below, which is still sequenced.
+2. **Push `main`**, then start spec 58 **P2** (`sentinel-1-rtc`) — unblocked, since the schema
+   change is landed and there is real data behind it.
+3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
+   **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity
+   measured ~117 GB against ~110 GB of headroom. `demos/e2e_austria.py` still requests B8A and
+   would fetch ~28 GB more; spec 58 **P3's AC17 needs it** (`nir08` **is** B8A), so that pass is
+   deferred, not avoided. The radiometry is now **correct** (baseline 02.12 → offset 0, verified).
+4. `gh issue list` — the open work. Nothing here is blocked on a decision you have to remember.
+5. Otherwise pick from **THE ORDER** below, which is still sequenced.
 
 **Before trusting anything below, re-verify rather than assume.** Every dated claim was true when
-written. Cheap checks (on `main`, spec 58 P1 merged):
-`.venv/bin/python -m pytest -q` (expect **1102 passed / 104 skipped**; a worktree run with
-`PYTHONPATH=src` collects 4 fewer `test_docs.py` params and reports 1100/102 -- same passes,
-no failures either way),
+written. Cheap checks (on `main`, spec 58 P1 + the re-download's three fixes merged):
+`.venv/bin/python -m pytest -q` (expect **~1109 passed / 103 skipped**; a worktree run with
+`PYTHONPATH=src` collects a few fewer `test_docs.py` params -- same passes either way),
 `.venv/bin/ruff check src tests demos examples`, `git log --oneline -5`, `gh issue list`.
 A quiet stretch in the git log is a break, not a stall — do not read it as a problem to diagnose.
 
-### ⚠️ Two obligations OUTSIDE this repo, still open
+### ⚠️ Three obligations OUTSIDE this repo, still open
 
 These will not fail loudly until something real runs, so they are recorded here rather than in an
 entry that gets archived:
@@ -51,6 +46,10 @@ entry that gets archived:
 2. **The workspace `CLAUDE.md` dev line still reads `pip install -e ".[dev]"`.** `pytest` passes on
    that, but `docs/tutorial.md` and any `runner="local"` work now need `.[dev,local]`. That file is
    outside the repo, so no commit here can fix it.
+3. **The workspace `CLAUDE.md` describes the OLD test archive** — "207 granules, 74 GB, bands
+   B04/B08/B8A/SCL", and the radiometry warning that cubes are ~1000 DN high. All of that is stale
+   as of **2026-09-07**: the archive is **184 granules, 67.2 GB, `B04,B08,SCL` (no B8A), from MPC**,
+   and its radiometry is **correct** (baseline 02.12, offset 0, verified). Also outside the repo.
 
 > **Keep this file small.** D12's target is **~2k words**. It has now blown past that twice, both
 > times by accreting `_Previously:_` blocks that nobody deleted. When you add an entry, move the one
@@ -66,11 +65,11 @@ dependency rather than checked out. That run was the goal stated on day one, and
 
 | | state |
 |---|---|
-| **Pipeline** | v1 core complete (**Sentinel-2 L2A only**, CDSE + MPC), proven local and on AML |
+| **Pipeline** | v1 core complete (**Sentinel-2 L2A only**, CDSE + MPC), proven local and on AML. Local test archive re-ingested from MPC 2026-09-07 under P1's schema: **184 granules, `B04,B08,SCL`, no B8A** |
 | **Scale-out** | AML runner seam; download, build, flatten and inference all fan out. Reference run `20260729T132222Z`: 18.8 min, 8/8 steps, 97 jobs, 213 granules, 300 grid cells → 300 COGs + STAC + a merged map |
 | **Serving** | tier-1 (pre-styled XYZ) and tier-2 (pgSTAC + titiler-pgstac) both validated |
 | **Docs** | spec 41 P1–P7 done; `docs/history.md` written and approved 2026-09-02; `src/` changelog comments swept (#85, refs 1,187 → 92) |
-| **Current work** | **spec 58** — P1 merged + pushed 2026-09-05; next `runbooks/58-redownload-austria-mpc.md` (written, not yet run), then P2 `sentinel-1-rtc`. See THE ORDER below |
+| **Current work** | **spec 58** — P1 landed and its re-download ran green 2026-09-07; **P2 `sentinel-1-rtc` is next and unblocked**. See THE ORDER below |
 | **Release** | **`v0.1.0` cut 2026-09-04.** SemVer 0.y.z on purpose — the `Source` abstraction does not exist and S1 is coming, so the API will break |
 | **Deferred work** | **GitHub Issues**, number-aligned with the old `TODO.md` rows (`gh issue list`) |
 | **rslearn** | **decision CLOSED 2026-07-31** — no rslearn for download; rslearn-on-Azure is a separate, unstarted project. `spike/rslearn` stays unmerged |
@@ -119,7 +118,7 @@ instruction above.
 | ~~**5**~~ | ~~**[#94](https://github.com/nikhilsrajan/fsd/issues/94)** — re-run the `PROGRESS.md` split~~ | **DONE 2026-09-03** — 1,737 lines moved verbatim to the archive; this file **19,970 → 1,762 words**; four defects retired, one of them a test that never ran | → **6**, now current |
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
-| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Next: finish `runbooks/58-redownload-austria-mpc.md` (**in flight** — downloading `B04,B08,SCL` @ cc50, 184 granules / ~89 GB; full fidelity did not fit, **B8A deferred**) → P2 | → **9** |
+| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). Next: **P2 `sentinel-1-rtc`** | → **9** |
 | **9** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
 
 **⚠️ The order changed again (user, 2026-09-04).** #93 was step 8 and CURRENT; the user promoted
@@ -143,55 +142,46 @@ notebook that has just been validated.
 
 ## Most recent entry
 
-_Last updated: 2026-09-05 (**SPEC 58 P1 REVIEWED — one real bug found and fixed, two acceptance
-criteria were claimed but untested.** Reviewed in worktree `spec58-p1` against
-`specs/58-collection-agnostic-verbs.md` §4/§5. Independently re-ran `pytest -q`
-(**1100 passed / 102 skipped / 0 failed**, +3 tests added by this review; the tutorial fixture's
-4 real-data tests are included, not run separately) and `ruff check src tests demos examples`
-(clean). **Verdict: mergeable after the fixes below**, which are in the same branch. The P1
-implementation entry moved verbatim to [`docs/progress-archive.md`](docs/progress-archive.md).)_
+_Last updated: 2026-09-07 (**THE AUSTRIA ARCHIVE IS RE-INGESTED — run-book 58 ran green, and
+three real bugs came out of it that no amount of review had found.** `runbooks/58-redownload-
+austria-mpc.md` steps 0–5 done, QGIS eyeball passed. The archive is **184 granules / 552 files /
+67.2 GB** at `tests/outputs/demo_e2e/imagery/`, `B04,B08,SCL` @ `max_cloudcover=50`, MPC. Spec 58
+**P2 (`sentinel-1-rtc`) is now unblocked** — the schema change is landed and the data behind it is
+real. `main` is 10+ commits ahead of `origin/main`.)_
 
-_**The bug: the D13 control file was addressed per RUN, not per unit.** `setup` wrote the resolved
-declaration to `<run_folderpath>/declaration.json` — one file for a whole run folder. But a run
-folder holds rows from many `setup` calls (`_UNIT_IDENTITY_COLS` carries `collection` precisely so
-different collections coexist in one `input.csv`), and `_build_shortfall` dispatches **every**
-still-missing row in that file regardless of which call wrote it. So a second `setup` with a
-different collection silently overwrote the file the first call's nodes still point at → the wrong
-mask/radiometry, written to a cube path that names a different collection, with the build-skip then
-treating it as valid. Not reachable in P1 (one collection is registered) and certain to bite in P2.
-**Fixed:** the control file now lives at `<run_folderpath>/<window_segment>/declaration.json` — the
-window segment already digests `collection` + the declaration (D4), so it is exactly the right
-granularity. Same failure shape as [[fsd-addressing-granularity]]: address per unit path, never one
-file per run._
+_**The archive changed shape, and nothing fails loudly if you assume otherwise.** It is **not** the
+old 207-granule / 74 GB / four-band CDSE archive: **B8A is gone** (full fidelity measured ~117 GB
+against ~110 GB of headroom, so it was dropped to fit) and cloud cover is capped at 50, not 70.
+Consequences: `demos/e2e_austria.py` still requests B8A and would fetch ~28 GB more; spec 58 **P3's
+AC17 needs B8A** (`nir08` **is** B8A), so a supplementary pass is deferred, not avoided. The
+workspace `CLAUDE.md` still describes the OLD archive — see the out-of-repo obligations above._
 
-_**Two ACs were claimed met but had no test.** **AC9**'s driver half ("the control file carries the
-declaration JSON") was untested — only the node's *read* was covered, by hand-written fixtures.
-**AC10**'s first half ("`from_json` on a v1 footer still parses") was untested — the nearest test
-deletes one optional field from a **v2** footer. Both now have tests: `test_backward_walk.py::
-test_setup_writes_a_window_scoped_declaration_control_file` (which is also the regression guard for
-the bug above) and two in `test_declaration.py` pinning a frozen v1 footer literal + the
-version-check-before-unknown-field-check ordering. AC1-AC8 verified as claimed; **AC3 (bit-identical
-S2) re-derived independently rather than trusted** — `radiometry_bands` equals the old
-`_is_reflectance` regex over every band in `S2L2A_ALL_BANDS`, and `apply_offset`'s new dtype-range
-clip is identical to the old literal `0..65535` for `uint16`._
+_**The radiometry debt is retired, and the proof is in the artifact rather than in a constant:**
+`verify` reports `baselines_seen: ["02.12"]` — every granule declares processing baseline 02.12,
+below 04.00, so ESA's offset genuinely is 0. MPC serves the **original 2018 processing**; CDSE
+served the **2023 reprocessing** (N0500 ≥ 04.00, offset −1000) while recording 0, which is exactly
+what made the old cubes ~1000 DN high. An earlier draft of `verify` asserted a flat `-1000` and the
+`discover` step falsified it in seconds; it now derives the expected offset per row from the
+baseline in the item's own `properties` (spec 58 D12's new column), which is right for either
+provider._
 
-_**Two smaller fixes:** both new tests that register throwaway collections leaked them into the
-global in-process `fsd.collections.REGISTRY` (which `restamp_cli`'s `--declaration` choices are a
-view over) — now torn down in a `finally`. And `tests/data/tutorial/catalog.parquet`'s in-place
-migration left `scale`/`properties` appended after `geometry`, so the fixture did not match the
-`catalog.COLUMNS` order every real `TileCatalog.append` produces — reordered, values/geometry/CRS/
-stamp asserted unchanged._
+_**Three bugs, all found by running it, none by review:**
+(1) **`mpc.download` signed every href at STAC discovery.** An MPC SAS token lives ~45 min and a
+whole-archive run takes longer, so 393 of 552 files failed at once when it aged out — a contiguous
+newest-first tail, with the part-downloaded granules exactly at its boundary. Both MPC paths now
+sign **inside the transfer worker, once per attempt**; `discover_shard_rows` had documented this
+hazard for the AML fan-out all along, and `download()` was the path that still signed up front.
+(2) **`api.download` never forwarded `max_concurrent`**, pinning every download to
+`config.MPC_MAX_CONCURRENT` = 4 — a value whose own comment says it was picked for "a single
+tile/band runbook". (3) **Failure reasons were collected and thrown away**: `DownloadResult.
+failures` always carried `(src_url, reason)`, but nothing printed it, so a run could lose 71 % of
+its files and say only `fail=393`. Failures now print grouped by exception **type** — the first
+version of that summary grouped on the whole message, which for `FileNotFoundError(url)` is unique
+per file, so it printed 74 failures as 74 useless one-off lines._
 
-_**Three things flagged, deliberately NOT changed** (two need the user, one is P2 scope): (1) **D14's
-field table is not exhaustive** — `native_grid`, `mask_keep` and `supports_cloud_cover` are in
-neither the artifact-fact nor the build-policy group, so a variant may currently differ from the
-catalog's stamp on `native_grid` without raising. The code matches the spec's table exactly, so this
-is a **spec** gap, not an implementation one, and a spec change needs sign-off. (2) **The STAC export
-drops the catalog's new `properties` column** — `tile_catalog_to_items` builds items with
-`properties={}`, so a catalog round-tripped through STAC loses the `sat:orbit_state` D9 will need in
-P2. Outside P1's ACs. (3) `stac.tile_catalog_to_items`'s `row_scale` fallback uses `if not
-row_scale`, which lets a `NaN` through (`not nan` is `False`); only reachable from a hand-built
-catalog, since `append` defaults the column. **The P1-scoped-out AML download path was checked and
-is genuinely safe**, not a silent gap: both sources' `SERVED_COLLECTIONS` is `("sentinel-2-l2a",)`,
-so a non-default `collection` cannot reach it at all today._
-
+_**A methodological note worth keeping** ([[real-run-beats-review]] again): the first diagnosis of
+the download failure was wrong. "Success rate was steady for 44 minutes, so it is not expiry" is
+invalid reasoning — successes necessarily stop when a token dies, so a flat rate right up to the
+end is consistent with sudden death, not evidence against it. The date distribution of what landed
+is what settled it. Two review passes over this code found none of these three bugs; one real run
+found all three._

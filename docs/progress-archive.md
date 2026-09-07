@@ -1,10 +1,64 @@
 ---
 status: historical
-summary: PROGRESS entries older than the current one, moved here verbatim — first on 2026-07-30 (spec 41 D12, 61 entries), again on 2026-09-03 (#94, covering 2026-09-03 back to 2026-08-20), again on 2026-09-05 (spec 58 draft entry, one block; and again the same day, the spec 58 P1 implementation entry).
+summary: PROGRESS entries older than the current one, moved here verbatim — first on 2026-07-30 (spec 41 D12, 61 entries), again on 2026-09-03 (#94, covering 2026-09-03 back to 2026-08-20), again on 2026-09-05 (spec 58 draft entry, one block; and again the same day, the spec 58 P1 implementation entry); again on 2026-09-07 (the P1 review entry).
 ordering: NOT chronological end to end. The 2026-07-30 bulk is newest-first; a tail appended after it runs 08-20, 08-19, 07-31, 07-30 out of order; the 2026-09-03 block is newest-first again; the two 2026-09-05 appends are single blocks at the top, P1-implementation first then the spec-58 draft. Search this file, do not scroll it.
 headings: two forms — `## 2026-...` and `## <emoji> 2026-...` (✅ 🟡 ⭐). A bare `grep '^## 2026'` finds only some of them and will mis-split the file.
 coverage: complete through 2026-09-05 — but it was NOT before then. Until the #94 append, specs 48-53 and the whole notebook-usability sprint (2026-08-20 to 09-03) appeared zero times here, so this file was not the complete archaeology source its first summary claimed. docs/history.md is the narrative view; this is the raw log.
 ---
+
+## 2026-09-05 — SPEC 58 P1 REVIEWED: one real bug, two untested ACs
+
+_Last updated: 2026-09-05 (**SPEC 58 P1 REVIEWED — one real bug found and fixed, two acceptance
+criteria were claimed but untested.** Reviewed in worktree `spec58-p1` against
+`specs/58-collection-agnostic-verbs.md` §4/§5. Independently re-ran `pytest -q`
+(**1100 passed / 102 skipped / 0 failed**, +3 tests added by this review; the tutorial fixture's
+4 real-data tests are included, not run separately) and `ruff check src tests demos examples`
+(clean). **Verdict: mergeable after the fixes below**, which are in the same branch. The P1
+implementation entry moved verbatim to [`docs/progress-archive.md`](docs/progress-archive.md).)_
+
+_**The bug: the D13 control file was addressed per RUN, not per unit.** `setup` wrote the resolved
+declaration to `<run_folderpath>/declaration.json` — one file for a whole run folder. But a run
+folder holds rows from many `setup` calls (`_UNIT_IDENTITY_COLS` carries `collection` precisely so
+different collections coexist in one `input.csv`), and `_build_shortfall` dispatches **every**
+still-missing row in that file regardless of which call wrote it. So a second `setup` with a
+different collection silently overwrote the file the first call's nodes still point at → the wrong
+mask/radiometry, written to a cube path that names a different collection, with the build-skip then
+treating it as valid. Not reachable in P1 (one collection is registered) and certain to bite in P2.
+**Fixed:** the control file now lives at `<run_folderpath>/<window_segment>/declaration.json` — the
+window segment already digests `collection` + the declaration (D4), so it is exactly the right
+granularity. Same failure shape as [[fsd-addressing-granularity]]: address per unit path, never one
+file per run._
+
+_**Two ACs were claimed met but had no test.** **AC9**'s driver half ("the control file carries the
+declaration JSON") was untested — only the node's *read* was covered, by hand-written fixtures.
+**AC10**'s first half ("`from_json` on a v1 footer still parses") was untested — the nearest test
+deletes one optional field from a **v2** footer. Both now have tests: `test_backward_walk.py::
+test_setup_writes_a_window_scoped_declaration_control_file` (which is also the regression guard for
+the bug above) and two in `test_declaration.py` pinning a frozen v1 footer literal + the
+version-check-before-unknown-field-check ordering. AC1-AC8 verified as claimed; **AC3 (bit-identical
+S2) re-derived independently rather than trusted** — `radiometry_bands` equals the old
+`_is_reflectance` regex over every band in `S2L2A_ALL_BANDS`, and `apply_offset`'s new dtype-range
+clip is identical to the old literal `0..65535` for `uint16`._
+
+_**Two smaller fixes:** both new tests that register throwaway collections leaked them into the
+global in-process `fsd.collections.REGISTRY` (which `restamp_cli`'s `--declaration` choices are a
+view over) — now torn down in a `finally`. And `tests/data/tutorial/catalog.parquet`'s in-place
+migration left `scale`/`properties` appended after `geometry`, so the fixture did not match the
+`catalog.COLUMNS` order every real `TileCatalog.append` produces — reordered, values/geometry/CRS/
+stamp asserted unchanged._
+
+_**Three things flagged, deliberately NOT changed** (two need the user, one is P2 scope): (1) **D14's
+field table is not exhaustive** — `native_grid`, `mask_keep` and `supports_cloud_cover` are in
+neither the artifact-fact nor the build-policy group, so a variant may currently differ from the
+catalog's stamp on `native_grid` without raising. The code matches the spec's table exactly, so this
+is a **spec** gap, not an implementation one, and a spec change needs sign-off. (2) **The STAC export
+drops the catalog's new `properties` column** — `tile_catalog_to_items` builds items with
+`properties={}`, so a catalog round-tripped through STAC loses the `sat:orbit_state` D9 will need in
+P2. Outside P1's ACs. (3) `stac.tile_catalog_to_items`'s `row_scale` fallback uses `if not
+row_scale`, which lets a `NaN` through (`not nan` is `False`); only reachable from a hand-built
+catalog, since `append` defaults the column. **The P1-scoped-out AML download path was checked and
+is genuinely safe**, not a silent gap: both sources' `SERVED_COLLECTIONS` is `("sentinel-2-l2a",)`,
+so a non-default `collection` cannot reach it at all today._
 
 ## 2026-09-05 — SPEC 58 P1 IMPLEMENTED: the contract lands, S2 L2A only
 

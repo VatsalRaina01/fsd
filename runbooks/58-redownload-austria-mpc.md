@@ -1,6 +1,6 @@
 ---
 status: current
-summary: Re-download the Austria test archive from MPC under spec 58 P1's catalog schema — settled on B04/B08/SCL at cloudcover 50 (~89 GB, 184 granules) because full fidelity did not fit; re-stamps radiometry from each item's own declared baseline.
+summary: RAN 2026-09-07, green. Re-downloaded the Austria test archive from MPC under spec 58 P1's catalog schema — 184 granules / 552 files / 67.2 GB, B04/B08/SCL at cloudcover 50 (B8A dropped, full fidelity did not fit).
 ---
 
 # Run-book: 58 — re-download the Austria archive (MPC, new catalog schema)
@@ -11,6 +11,26 @@ summary: Re-download the Austria test archive from MPC under spec 58 P1's catalo
 >
 > Script: [`runbooks/scripts/58_redownload_austria.py`](scripts/58_redownload_austria.py).
 > Every step is one invocation and writes its own `_result_*.json` even when it fails.
+
+## Outcome — ran 2026-09-07, green
+
+| step | result |
+|---|---|
+| discover | 184 granules, 4 MGRS tiles, 0.483 GB/granule → ~89 GB estimated |
+| download | **552/552 files, 184 granules, 0 incomplete**, 67.2 GB |
+| verify | **8/8 checks green** |
+| build-cube | both built; seam cell spans **all 4** MGRS tiles; nodata 0.49 / 0.38 |
+| QGIS | eyeball passed (user, 2026-09-07) |
+
+**The radiometry question is settled, and by evidence rather than assumption:**
+`baselines_seen: ["02.12"]` — every granule declares processing baseline **02.12**, below
+04.00, so ESA's additive offset genuinely is **0** and `offset_matches_declared_baseline`
+passed. MPC serves the original 2018 processing; the CDSE archive this replaced served the
+2023 reprocessing (N0500 ≥ 04.00, offset −1000) while recording 0, which is what made its
+cubes ~1000 DN high. This archive is not carrying that debt.
+
+**It took three download attempts**, and both retries were code bugs, not bad luck — see the
+step 3 notes below. The third run finished the last 74 files in **14.6 minutes**.
 
 ## Purpose
 
