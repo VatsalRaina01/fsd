@@ -8,23 +8,28 @@ this — read [`docs/history.md`](docs/history.md).
 
 ## Resuming after a break — start here
 
-**Spec 58 P1 is landed, its re-download ran green, and the P2 spec amendments are SIGNED OFF
-(user, 2026-09-11). The next action is IMPLEMENTING spec 58 P2** — a Sonnet session, in the
-existing worktree `worktree-spec58-p2`.
+**Spec 58 P2 (`sentinel-1-rtc`) is IMPLEMENTED (2026-09-11, `worktree-spec58-p2` @ `006da39`),
+green, and NOT YET REVIEWED OR MERGED. The next action is the OPUS REVIEW** (`/model opus`,
+`/effort high`), against `specs/58-collection-agnostic-verbs.md` §4/§5's P2 section and
+`CLAUDE.md`'s conventions — see "Most recent entry" for what was built and the three bugs already
+found during implementation (review is looking for what implementation missed, not re-finding
+those). **After review: the user runs `runbooks/58-p2-window-a.md` (AC15) — do not skip it**;
+P1's own re-download run-book found three real bugs that two review passes had missed. **Only
+after the run-book comes back green** does the standing practice apply: `--no-ff` merge
+`worktree-spec58-p2` into `main` and prune the worktree.
 P1 merged to `main` 2026-09-05 (review found one real bug and two untested ACs); the
 re-download run-book ran **2026-09-07**, all steps green including the QGIS eyeball, and found
-**three more real bugs** that two review passes had missed — see "Most recent entry". `main` is
-clean, no unmerged branches except `spike/rslearn` (intentional). **`v0.1.0` is cut and pushed.**
-⚠️ **`main` is ~12 commits AHEAD of `origin/main` — everything since P1 is unpushed.**
+**three more real bugs** that two review passes had missed. `main` is clean, no unmerged branches
+except `spike/rslearn` (intentional) and `worktree-spec58-p2` (P2, awaiting review). **`v0.1.0` is
+cut and pushed.** ⚠️ **`main` is ~14 commits AHEAD of `origin/main` — everything since P1 is
+unpushed**, and P2's merge will add one more.
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Push `main`** (still unpushed — the user's call), then **implement spec 58 P2**
-   (`sentinel-1-rtc`) against the amended spec. **D10 is RETRACTED** — MPC dropped the RTC key
-   requirement in 2024, verified anonymously 2026-09-07 — so P2 has **no external blocker**. Work
-   in **`worktree-spec58-p2`** (`.claude/worktrees/spec58-p2`, rebased onto local `main`, spec
-   commit `6220256`). ⚠️ **Do not create a fresh worktree while `main` is unpushed:**
-   `EnterWorktree` branches from `origin/main`, 12+ commits behind — the P2 spec pass hit exactly
-   that and had to rebase.
+2. **Review spec 58 P2** in `worktree-spec58-p2` (`.claude/worktrees/spec58-p2`, commit `006da39`)
+   — do NOT re-enter via a fresh `EnterWorktree`, which branches from `origin/main` and would miss
+   the P2 commits; use `EnterWorktree(path=".../worktree-spec58-p2")` or a plain `cd`. Then hand
+   the run-book to the user; then merge + prune; then **push `main`** (still unpushed — the
+   user's call).
 3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
    **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity
    measured ~117 GB against ~110 GB of headroom. `demos/e2e_austria.py` still requests B8A and
@@ -34,10 +39,10 @@ clean, no unmerged branches except `spike/rslearn` (intentional). **`v0.1.0` is 
 5. Otherwise pick from **THE ORDER** below, which is still sequenced.
 
 **Before trusting anything below, re-verify rather than assume.** Every dated claim was true when
-written. Cheap checks (on `main`, spec 58 P1 + the re-download's three fixes merged):
-`.venv/bin/python -m pytest -q` (expect **~1109 passed / 103 skipped**; a worktree run with
-`PYTHONPATH=src` collects a few fewer `test_docs.py` params -- same passes either way),
-`.venv/bin/ruff check src tests demos examples`, `git log --oneline -5`, `gh issue list`.
+written. Cheap checks (on `worktree-spec58-p2` @ `006da39`, P2 implemented):
+`PYTHONPATH=src ~/NASA-Harvest/project/fetch_satdata_claude/fsd/.venv/bin/python -m pytest -q`
+(expect **1127 passed / 103 skipped**), `.venv/bin/ruff check src tests demos examples`,
+`git log --oneline -5`, `gh issue list`.
 A quiet stretch in the git log is a break, not a stall — do not read it as a problem to diagnose.
 
 ### ⚠️ Three obligations OUTSIDE this repo, still open
@@ -76,7 +81,7 @@ dependency rather than checked out. That run was the goal stated on day one, and
 | **Scale-out** | AML runner seam; download, build, flatten and inference all fan out. Reference run `20260729T132222Z`: 18.8 min, 8/8 steps, 97 jobs, 213 granules, 300 grid cells → 300 COGs + STAC + a merged map |
 | **Serving** | tier-1 (pre-styled XYZ) and tier-2 (pgSTAC + titiler-pgstac) both validated |
 | **Docs** | spec 41 P1–P7 done; `docs/history.md` written and approved 2026-09-02; `src/` changelog comments swept (#85, refs 1,187 → 92) |
-| **Current work** | **spec 58** — P1 landed and its re-download ran green 2026-09-07; **P2 spec amendments signed off 2026-09-11 (D10 retracted), implementation next** in `worktree-spec58-p2`. See THE ORDER below |
+| **Current work** | **spec 58** — P1 landed and its re-download ran green 2026-09-07; **P2 (`sentinel-1-rtc`) implemented 2026-09-11 in `worktree-spec58-p2` @ `006da39`, awaiting Opus review + the AC15 run-book**. See THE ORDER below |
 | **Release** | **`v0.1.0` cut 2026-09-04.** SemVer 0.y.z on purpose — the `Source` abstraction does not exist and S1 is coming, so the API will break |
 | **Deferred work** | **GitHub Issues**, number-aligned with the old `TODO.md` rows (`gh issue list`) |
 | **rslearn** | **decision CLOSED 2026-07-31** — no rslearn for download; rslearn-on-Azure is a separate, unstarted project. `spike/rslearn` stays unmerged |
@@ -125,7 +130,7 @@ instruction above.
 | ~~**5**~~ | ~~**[#94](https://github.com/nikhilsrajan/fsd/issues/94)** — re-run the `PROGRESS.md` split~~ | **DONE 2026-09-03** — 1,737 lines moved verbatim to the archive; this file **19,970 → 1,762 words**; four defects retired, one of them a test that never ran | → **6**, now current |
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
-| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`: D10 retracted — RTC needs no key; AC14 replaced; D9 gets a generic `properties_filter`; D17 gets the S1 declaration table). Next: **implement P2** | → **9** |
+| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 IMPLEMENTED 2026-09-11** in `worktree-spec58-p2` @ `006da39` — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built), pytest **1127 passed / 103 skipped**, ruff clean, `runbooks/58-p2-window-a.md` written. Next: **Opus review**, then the run-book, then merge | → **9** |
 | **9** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
 
 **⚠️ The order changed again (user, 2026-09-04).** #93 was step 8 and CURRENT; the user promoted
@@ -149,46 +154,45 @@ notebook that has just been validated.
 
 ## Most recent entry
 
-_Last updated: 2026-09-07 (**THE AUSTRIA ARCHIVE IS RE-INGESTED — run-book 58 ran green, and
-three real bugs came out of it that no amount of review had found.** `runbooks/58-redownload-
-austria-mpc.md` steps 0–5 done, QGIS eyeball passed. The archive is **184 granules / 552 files /
-67.2 GB** at `tests/outputs/demo_e2e/imagery/`, `B04,B08,SCL` @ `max_cloudcover=50`, MPC. Spec 58
-**P2 (`sentinel-1-rtc`) is now unblocked** — the schema change is landed and the data behind it is
-real. `main` is 10+ commits ahead of `origin/main`.)_
+_Last updated: 2026-09-11 (**SPEC 58 P2 IMPLEMENTED — `sentinel-1-rtc` + `properties_filter`,
+in `worktree-spec58-p2` (`006da39`), not yet reviewed or merged.** A Sonnet session implemented
+against the amended spec (`6220256`): `fsd/collections/s1_rtc.py` (the D17 declaration), `mpc.py`
+serves it (D15), `catalog.filter_by_properties` (D9 part 1, the query-time filter),
+`builder._enforce_mosaic_partition` (D9 part 2, called unconditionally at the top of
+`build_datacube`), and `properties_filter=` threaded through `params_key`/`window_folder_segment`/
+`setup`/`build_shortfall_only`/`run_create_datacube` and every verb carrying `collection=`
+(D9 part 3 — canonicalized, folded into the digest only when non-empty, so an S2 build's path is
+byte-identical to before P2, AC13). ACs 11-14 pass as pytest (`tests/test_spec58_p2.py`, 18 tests);
+full suite **1127 passed / 103 skipped** (baseline 1109/103 + these 18), ruff clean.
+`runbooks/58-p2-window-a.md` (AC15) is written, not run. **Next: Opus review, then the user runs
+the run-book, then `--no-ff` merge + prune** (standing practice; on P1's own re-download, the
+run-book found three real bugs two review passes had missed — do not skip it because review passed)._
 
-_**The archive changed shape, and nothing fails loudly if you assume otherwise.** It is **not** the
-old 207-granule / 74 GB / four-band CDSE archive: **B8A is gone** (full fidelity measured ~117 GB
-against ~110 GB of headroom, so it was dropped to fit) and cloud cover is capped at 50, not 70.
-Consequences: `demos/e2e_austria.py` still requests B8A and would fetch ~28 GB more; spec 58 **P3's
-AC17 needs B8A** (`nir08` **is** B8A), so a supplementary pass is deferred, not avoided. The
-workspace `CLAUDE.md` still describes the OLD archive — see the out-of-repo obligations above._
+_**Two real bugs found while implementing, not by review — both would have broken the very first
+real S1 build:**
+(1) **`mpc._items_to_gdf` called the S2-only `offset_for_item` unconditionally**, which raises
+`ValueError` for any item lacking S2's processing-baseline properties — every `sentinel-1-rtc`
+item has none. Fixed: skipped when the resolved declaration's `radiometry_bands == ()` (S1's case;
+`None` still means "every band, derive normally").
+(2) **`build_datacube` never actually implemented D11's `reference_band=None` case.** The P1 spec
+text says it means "bands are already grid-uniform, use the first requested band, run no resample
+step" — but the code compared `catalog_gdf["band"] == reference_band` where `reference_band` was
+still `None`, which matches nothing, leaving `ref_indices` empty and the merge failing on zero
+images. No P1 test built an actual cube with `reference_band=None`; every P1 AC checked the
+declaration/preflight shape, not a pixel. Fixed by falling back to `bands[0]` to build the
+reference grid when `reference_band` resolves to `None` — the resample step already no-ops
+correctly once every band shares one grid, so no separate "skip resample" branch was needed._
 
-_**The radiometry debt is retired, and the proof is in the artifact rather than in a constant:**
-`verify` reports `baselines_seen: ["02.12"]` — every granule declares processing baseline 02.12,
-below 04.00, so ESA's offset genuinely is 0. MPC serves the **original 2018 processing**; CDSE
-served the **2023 reprocessing** (N0500 ≥ 04.00, offset −1000) while recording 0, which is exactly
-what made the old cubes ~1000 DN high. An earlier draft of `verify` asserted a flat `-1000` and the
-`discover` step falsified it in seconds; it now derives the expected offset per row from the
-baseline in the item's own `properties` (spec 58 D12's new column), which is right for either
-provider._
+_**A third, smaller bug, found by the fix above widening what `properties_filter=""` touches:**
+`create_datacube._dedupe_on_unit_identity` raised `TypeError: sequence item N: expected str
+instance, float found` once a legitimately-empty `properties_filter` round-tripped through CSV as
+NaN (the same empty-string-becomes-NaN footgun already documented for `bands`) and hit a pandas
+version where `.astype(str)` does not coerce that NaN to the literal string `"nan"`. Fixed with a
+`fillna("")` before the join, mirroring the existing fix pattern for `bands`._
 
-_**Three bugs, all found by running it, none by review:**
-(1) **`mpc.download` signed every href at STAC discovery.** An MPC SAS token lives ~45 min and a
-whole-archive run takes longer, so 393 of 552 files failed at once when it aged out — a contiguous
-newest-first tail, with the part-downloaded granules exactly at its boundary. Both MPC paths now
-sign **inside the transfer worker, once per attempt**; `discover_shard_rows` had documented this
-hazard for the AML fan-out all along, and `download()` was the path that still signed up front.
-(2) **`api.download` never forwarded `max_concurrent`**, pinning every download to
-`config.MPC_MAX_CONCURRENT` = 4 — a value whose own comment says it was picked for "a single
-tile/band runbook". (3) **Failure reasons were collected and thrown away**: `DownloadResult.
-failures` always carried `(src_url, reason)`, but nothing printed it, so a run could lose 71 % of
-its files and say only `fail=393`. Failures now print grouped by exception **type** — the first
-version of that summary grouped on the whole message, which for `FileNotFoundError(url)` is unique
-per file, so it printed 74 failures as 74 useless one-off lines._
-
-_**A methodological note worth keeping** ([[real-run-beats-review]] again): the first diagnosis of
-the download failure was wrong. "Success rate was steady for 44 minutes, so it is not expiry" is
-invalid reasoning — successes necessarily stop when a token dies, so a flat rate right up to the
-end is consistent with sudden death, not evidence against it. The date distribution of what landed
-is what settled it. Two review passes over this code found none of these three bugs; one real run
-found all three._
+_**Decisions flagged rather than buried (per the P2 handoff's ask):** `download()` does NOT gain
+`properties_filter` in P2 — selection happens at build time
+(`create_training_data`/`run_inference`/`verify_adapter`), sufficient for Window A; download-time
+property filtering can follow once a concrete need appears. The D9 filter runs ONCE, in
+`create_datacube.setup` (query time); `build_datacube` only enforces on whatever rows it receives
+— it does not re-filter, since `setup`'s output is already scoped by the time a build sees it._

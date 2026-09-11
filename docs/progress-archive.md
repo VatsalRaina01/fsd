@@ -1,10 +1,56 @@
 ---
 status: historical
-summary: PROGRESS entries older than the current one, moved here verbatim — first on 2026-07-30 (spec 41 D12, 61 entries), again on 2026-09-03 (#94, covering 2026-09-03 back to 2026-08-20), again on 2026-09-05 (spec 58 draft entry, one block; and again the same day, the spec 58 P1 implementation entry); again on 2026-09-07 (the P1 review entry).
-ordering: NOT chronological end to end. The 2026-07-30 bulk is newest-first; a tail appended after it runs 08-20, 08-19, 07-31, 07-30 out of order; the 2026-09-03 block is newest-first again; the two 2026-09-05 appends are single blocks at the top, P1-implementation first then the spec-58 draft. Search this file, do not scroll it.
+summary: PROGRESS entries older than the current one, moved here verbatim — first on 2026-07-30 (spec 41 D12, 61 entries), again on 2026-09-03 (#94, covering 2026-09-03 back to 2026-08-20), again on 2026-09-05 (spec 58 draft entry, one block; and again the same day, the spec 58 P1 implementation entry); again on 2026-09-07 (the P1 review entry); again on 2026-09-11 (the re-download entry).
+ordering: NOT chronological end to end. The 2026-07-30 bulk is newest-first; a tail appended after it runs 08-20, 08-19, 07-31, 07-30 out of order; the 2026-09-03 block is newest-first again; the appends since 2026-09-05 are single blocks at the top, newest append first. Search this file, do not scroll it.
 headings: two forms — `## 2026-...` and `## <emoji> 2026-...` (✅ 🟡 ⭐). A bare `grep '^## 2026'` finds only some of them and will mis-split the file.
 coverage: complete through 2026-09-05 — but it was NOT before then. Until the #94 append, specs 48-53 and the whole notebook-usability sprint (2026-08-20 to 09-03) appeared zero times here, so this file was not the complete archaeology source its first summary claimed. docs/history.md is the narrative view; this is the raw log.
 ---
+
+## 2026-09-07 — THE AUSTRIA ARCHIVE IS RE-INGESTED; three real bugs from run-book 58
+
+_Last updated: 2026-09-07 (**THE AUSTRIA ARCHIVE IS RE-INGESTED — run-book 58 ran green, and
+three real bugs came out of it that no amount of review had found.** `runbooks/58-redownload-
+austria-mpc.md` steps 0–5 done, QGIS eyeball passed. The archive is **184 granules / 552 files /
+67.2 GB** at `tests/outputs/demo_e2e/imagery/`, `B04,B08,SCL` @ `max_cloudcover=50`, MPC. Spec 58
+**P2 (`sentinel-1-rtc`) is now unblocked** — the schema change is landed and the data behind it is
+real. `main` is 10+ commits ahead of `origin/main`.)_
+
+_**The archive changed shape, and nothing fails loudly if you assume otherwise.** It is **not** the
+old 207-granule / 74 GB / four-band CDSE archive: **B8A is gone** (full fidelity measured ~117 GB
+against ~110 GB of headroom, so it was dropped to fit) and cloud cover is capped at 50, not 70.
+Consequences: `demos/e2e_austria.py` still requests B8A and would fetch ~28 GB more; spec 58 **P3's
+AC17 needs B8A** (`nir08` **is** B8A), so a supplementary pass is deferred, not avoided. The
+workspace `CLAUDE.md` still describes the OLD archive — see the out-of-repo obligations above._
+
+_**The radiometry debt is retired, and the proof is in the artifact rather than in a constant:**
+`verify` reports `baselines_seen: ["02.12"]` — every granule declares processing baseline 02.12,
+below 04.00, so ESA's offset genuinely is 0. MPC serves the **original 2018 processing**; CDSE
+served the **2023 reprocessing** (N0500 ≥ 04.00, offset −1000) while recording 0, which is exactly
+what made the old cubes ~1000 DN high. An earlier draft of `verify` asserted a flat `-1000` and the
+`discover` step falsified it in seconds; it now derives the expected offset per row from the
+baseline in the item's own `properties` (spec 58 D12's new column), which is right for either
+provider._
+
+_**Three bugs, all found by running it, none by review:**
+(1) **`mpc.download` signed every href at STAC discovery.** An MPC SAS token lives ~45 min and a
+whole-archive run takes longer, so 393 of 552 files failed at once when it aged out — a contiguous
+newest-first tail, with the part-downloaded granules exactly at its boundary. Both MPC paths now
+sign **inside the transfer worker, once per attempt**; `discover_shard_rows` had documented this
+hazard for the AML fan-out all along, and `download()` was the path that still signed up front.
+(2) **`api.download` never forwarded `max_concurrent`**, pinning every download to
+`config.MPC_MAX_CONCURRENT` = 4 — a value whose own comment says it was picked for "a single
+tile/band runbook". (3) **Failure reasons were collected and thrown away**: `DownloadResult.
+failures` always carried `(src_url, reason)`, but nothing printed it, so a run could lose 71 % of
+its files and say only `fail=393`. Failures now print grouped by exception **type** — the first
+version of that summary grouped on the whole message, which for `FileNotFoundError(url)` is unique
+per file, so it printed 74 failures as 74 useless one-off lines._
+
+_**A methodological note worth keeping** ([[real-run-beats-review]] again): the first diagnosis of
+the download failure was wrong. "Success rate was steady for 44 minutes, so it is not expiry" is
+invalid reasoning — successes necessarily stop when a token dies, so a flat rate right up to the
+end is consistent with sudden death, not evidence against it. The date distribution of what landed
+is what settled it. Two review passes over this code found none of these three bugs; one real run
+found all three._
 
 ## 2026-09-05 — SPEC 58 P1 REVIEWED: one real bug, two untested ACs
 
