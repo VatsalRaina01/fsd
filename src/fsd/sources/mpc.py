@@ -49,11 +49,12 @@ __all__ = [
     "download_shard",
 ]
 
-# The collections this source serves (spec 58 D15). MPC also hosts sentinel-1-rtc and
-# hls2-s30/hls2-l30 (see specs/58 D17/P3), but P1 registers no declaration for them, so
-# this source-x-collection guard names only what fsd can actually build against today --
-# extended in P2/P3 as each collection's declaration ships.
-SERVED_COLLECTIONS = (config.SATELLITE_S2L2A,)
+# The collections this source serves (spec 58 D15). MPC also hosts hls2-s30/hls2-l30
+# (see specs/58 D17/P3), but P1/P2 register no declaration for them yet, so this
+# source-x-collection guard names only what fsd can actually build against today --
+# extended in P3 once that collection's declaration ships. sentinel-1-rtc joins here in
+# P2 (D17): MPC serves it anonymously, same as S2 L2A (D10, retracted).
+SERVED_COLLECTIONS = (config.SATELLITE_S2L2A, "sentinel-1-rtc")
 
 
 @dataclasses.dataclass
@@ -191,6 +192,14 @@ def _items_to_gdf(
     """Parse MPC STAC items into a catalog GeoDataFrame. Pure — no network — so
     it is unit-testable with duck-typed fake items (`.id`, `.datetime`,
     `.geometry`, `.properties`, `.assets[*].href`)."""
+    # `offset_for_item` derives the radiometric offset from S2's processing-baseline
+    # properties, which a non-radiometric collection's items simply do not carry --
+    # calling it unconditionally raised `ValueError` for every sentinel-1-rtc item
+    # (spec 58 P2, found while wiring S1 ingest). A collection declaring
+    # `radiometry_bands=()` (S1: no band carries radiometry) has nothing to derive, so
+    # skip straight to 0 rather than probing for a property that was never going to be
+    # there.
+    needs_offset = declaration.radiometry_bands != ()
     rows = [
         {
             "id": it.id,
@@ -198,7 +207,7 @@ def _items_to_gdf(
             "timestamp": it.datetime,
             "s3url": _item_self_href(it),
             "cloud_cover": it.properties.get("eo:cloud_cover"),
-            "offset": offset_for_item(it),
+            "offset": offset_for_item(it) if needs_offset else 0,
             "scale": declaration.scale,
             "nodata": config.NODATA,
             "properties": json.dumps(dict(it.properties)),

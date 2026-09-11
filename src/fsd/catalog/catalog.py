@@ -21,6 +21,8 @@ silently default a missing column (see `read()`).
 from __future__ import annotations
 
 import datetime
+import json
+from collections.abc import Mapping, Sequence
 
 import geopandas as gpd
 import pandas as pd
@@ -94,6 +96,46 @@ def filter_gdf(
     )
 
     return overlapping
+
+
+def filter_by_properties(
+    gdf: gpd.GeoDataFrame,
+    properties_filter: Mapping[str, str | Sequence[str]] | None,
+) -> gpd.GeoDataFrame:
+    """Keep only rows whose `properties` JSON matches every key in `properties_filter`
+    (spec 58 D9, part 1) -- e.g. `{"sat:orbit_state": "descending"}`. A value may be a
+    single string or a sequence of acceptable values.
+
+    A key that **no row in `gdf` carries at all** raises, naming the keys the catalog
+    DOES carry -- filtering silently to zero rows is the same "user concludes their ROI
+    has no coverage" failure the D9 partition guard exists to prevent, from the other
+    direction. A key that some rows carry and others don't, or whose requested value(s)
+    happen to match no row, is an ordinary (possibly empty) filter result, not an error.
+
+    `None`/empty `properties_filter` is a no-op — returns `gdf` unchanged, not a copy.
+    """
+    if not properties_filter:
+        return gdf
+    parsed = [json.loads(p) if p else {} for p in gdf["properties"]]
+    carried_keys: set[str] = set()
+    for props in parsed:
+        carried_keys.update(props)
+    unknown = sorted(k for k in properties_filter if k not in carried_keys)
+    if unknown:
+        raise ValueError(
+            f"properties_filter key(s) {unknown} are not carried by any row in this "
+            f"catalog; keys this catalog carries: {sorted(carried_keys)}."
+        )
+    mask = []
+    for props in parsed:
+        keep = True
+        for key, want in properties_filter.items():
+            wants = [want] if isinstance(want, str) else list(want)
+            if props.get(key) not in wants:
+                keep = False
+                break
+        mask.append(keep)
+    return gdf[mask]
 
 
 class TileCatalog:

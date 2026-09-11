@@ -40,6 +40,7 @@ _INFER_ONLY_SNAKEFILE = "workflows/_snakefiles/infer_only/Snakefile"
 # import back would be circular (TODO #53).
 _UNIT_IDENTITY_COLS = (
     "id", "startdate", "enddate", "bands", "mosaic_days", "mosaic_scheme", "collection",
+    "properties_filter",
 )
 
 
