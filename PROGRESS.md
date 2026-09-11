@@ -8,7 +8,9 @@ this — read [`docs/history.md`](docs/history.md).
 
 ## Resuming after a break — start here
 
-**Spec 58 P1 is landed and its re-download has run green. The next action is spec 58 P2.**
+**Spec 58 P1 is landed, its re-download ran green, and the P2 spec amendments are SIGNED OFF
+(user, 2026-09-11). The next action is IMPLEMENTING spec 58 P2** — a Sonnet session, in the
+existing worktree `worktree-spec58-p2`.
 P1 merged to `main` 2026-09-05 (review found one real bug and two untested ACs); the
 re-download run-book ran **2026-09-07**, all steps green including the QGIS eyeball, and found
 **three more real bugs** that two review passes had missed — see "Most recent entry". `main` is
@@ -16,8 +18,13 @@ clean, no unmerged branches except `spike/rslearn` (intentional). **`v0.1.0` is 
 ⚠️ **`main` is ~12 commits AHEAD of `origin/main` — everything since P1 is unpushed.**
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Push `main`**, then start spec 58 **P2** (`sentinel-1-rtc`) — unblocked, since the schema
-   change is landed and there is real data behind it.
+2. **Push `main`** (still unpushed — the user's call), then **implement spec 58 P2**
+   (`sentinel-1-rtc`) against the amended spec. **D10 is RETRACTED** — MPC dropped the RTC key
+   requirement in 2024, verified anonymously 2026-09-07 — so P2 has **no external blocker**. Work
+   in **`worktree-spec58-p2`** (`.claude/worktrees/spec58-p2`, rebased onto local `main`, spec
+   commit `6220256`). ⚠️ **Do not create a fresh worktree while `main` is unpushed:**
+   `EnterWorktree` branches from `origin/main`, 12+ commits behind — the P2 spec pass hit exactly
+   that and had to rebase.
 3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
    **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity
    measured ~117 GB against ~110 GB of headroom. `demos/e2e_austria.py` still requests B8A and
@@ -69,7 +76,7 @@ dependency rather than checked out. That run was the goal stated on day one, and
 | **Scale-out** | AML runner seam; download, build, flatten and inference all fan out. Reference run `20260729T132222Z`: 18.8 min, 8/8 steps, 97 jobs, 213 granules, 300 grid cells → 300 COGs + STAC + a merged map |
 | **Serving** | tier-1 (pre-styled XYZ) and tier-2 (pgSTAC + titiler-pgstac) both validated |
 | **Docs** | spec 41 P1–P7 done; `docs/history.md` written and approved 2026-09-02; `src/` changelog comments swept (#85, refs 1,187 → 92) |
-| **Current work** | **spec 58** — P1 landed and its re-download ran green 2026-09-07; **P2 `sentinel-1-rtc` is next and unblocked**. See THE ORDER below |
+| **Current work** | **spec 58** — P1 landed and its re-download ran green 2026-09-07; **P2 spec amendments signed off 2026-09-11 (D10 retracted), implementation next** in `worktree-spec58-p2`. See THE ORDER below |
 | **Release** | **`v0.1.0` cut 2026-09-04.** SemVer 0.y.z on purpose — the `Source` abstraction does not exist and S1 is coming, so the API will break |
 | **Deferred work** | **GitHub Issues**, number-aligned with the old `TODO.md` rows (`gh issue list`) |
 | **rslearn** | **decision CLOSED 2026-07-31** — no rslearn for download; rslearn-on-Azure is a separate, unstarted project. `spike/rslearn` stays unmerged |
@@ -118,7 +125,7 @@ instruction above.
 | ~~**5**~~ | ~~**[#94](https://github.com/nikhilsrajan/fsd/issues/94)** — re-run the `PROGRESS.md` split~~ | **DONE 2026-09-03** — 1,737 lines moved verbatim to the archive; this file **19,970 → 1,762 words**; four defects retired, one of them a test that never ran | → **6**, now current |
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
-| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). Next: **P2 `sentinel-1-rtc`** | → **9** |
+| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`: D10 retracted — RTC needs no key; AC14 replaced; D9 gets a generic `properties_filter`; D17 gets the S1 declaration table). Next: **implement P2** | → **9** |
 | **9** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
 
 **⚠️ The order changed again (user, 2026-09-04).** #93 was step 8 and CURRENT; the user promoted
