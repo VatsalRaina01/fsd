@@ -382,14 +382,36 @@ print(json.dumps(result, indent=2))
   not a bug — proceed to step 3b using the enumeration to pick one.
 - **Paste the enumeration block from the terminal** alongside this step's `_result.json`. It is
   the actual AC11 evidence; `_result_build_s1_no_filter.json` only records that the build
-  stopped. (That the verb-level exception is not itself the D9 `ValueError` is a known,
-  reported gap, not something this run-book is testing.)
+  stopped.
+
+**Observed 2026-09-12 — this step PASSED, and here is exactly what it looked like**, so the next
+reader is not misled by the result file:
+
+```
+ValueError: build_datacube: rows span multiple values of ('sat:orbit_state',) (spec 58 D9) ...
+  (sat:orbit_state='ascending',  sat:relative_orbit=146): 5 acquisition(s), ROI coverage 100.0%
+  (sat:orbit_state='descending', sat:relative_orbit=22):  2 acquisition(s), ROI coverage 100.0%
+```
+
+⚠️ **The `_result.json` for that run recorded something completely different:**
+`FileNotFoundError: ... /845512/metadata.pickle.npy`. That is NOT a second bug in the build —
+it is the verb-level symptom of the gap noted above. The D9 `ValueError` is raised inside the
+Snakemake **subprocess**; `run_create_datacube` does not check the runner's return code, so
+`create_training_data` carries on to the flatten phase and dies looking for a cube that was
+never written. **The FileNotFoundError names a cell id and a missing `.npy` and says nothing
+about orbits** — it is actively misleading on its own. Always read the terminal, not just the
+result file, when this step fails. (Reported for decision; not fixed in P2.)
 - **PASS if:** the outcome matches what step 2 predicted. A raise when step 2 saw one orbit
   state (or a silent success when it saw two) is the actual failure to report.
 
 ### Step 3b — build the S1 cube with `properties_filter` (only if step 3a raised)
 
-Replace `<ORBIT_STATE>` with the value step 3a's error enumerated (e.g. `"ascending"`):
+Pre-filled with `'ascending'` — the group step 3a's enumeration showed with the most
+acquisitions (5 vs 2), run 2026-09-12. Use whatever *your* step 3a enumerated if it differs.
+
+Note this writes to a **different** window folder than step 3a did: `properties_filter` is part
+of `params_key`'s digest (D9.3), so a differently-filtered re-run can never collide with, or
+silently resume, another selection's cubes. Step 3a's partial folder is left behind on purpose.
 
 ```bash
 "$PY" -c "
@@ -407,7 +429,7 @@ td = api.create_training_data(
     bands=['vv', 'vh'], id_col='fid', label_col='crop',
     export_folderpath='$OUT/training_s1',
     collection='sentinel-1-rtc',
-    properties_filter={'sat:orbit_state': '<ORBIT_STATE>'},
+    properties_filter={'sat:orbit_state': 'ascending'},
 )
 result = {'step': 'build_s1_with_filter', 'status': 'ok', 'pass': True,
           'metrics': {'n_pixels': td.n_pixels, 'n_timestamps': td.n_timestamps,
@@ -420,8 +442,8 @@ print(json.dumps(result, indent=2))
 ```
 
 - **Expect:** succeeds this time — no orbit-state raise, since `properties_filter` narrowed the
-  catalog to one value before the build.
-- **PASS if:** `pass: true` and `td.bands == ['vv', 'vh']`.
+  catalog to one value before the build. The 5 ascending/146 scenes fall in 3 calendar windows.
+- **PASS if:** `pass: true`, `td.bands == ['vv', 'vh']`, and `td.n_timestamps == 3`.
 
 ### Step 4 — build the S2 cube for the SAME cell/window (identical verb shape)
 
