@@ -142,9 +142,10 @@ try:
     result.update(status='ok', pass_=True,
                    metrics={'n_pixels': td.n_pixels, 'n_timestamps': td.n_timestamps,
                             'bands': td.bands, 'raised': False})
-except ValueError as exc:
+except Exception as exc:
     result.update(status='raised', pass_=None,
-                   metrics={'raised': True, 'message': str(exc)})
+                   metrics={'raised': True, 'exc_type': type(exc).__name__,
+                            'message': str(exc)})
 result['pass'] = result.pop('pass_')
 with open('tests/outputs/p58_p2/_result_build_s1_no_filter.json', 'w') as f:
     json.dump(result, f, indent=2)
@@ -154,10 +155,17 @@ print(json.dumps(result, indent=2))
 
 - **If step 2 found exactly ONE `sat:orbit_state` value:** **Expect** this to SUCCEED
   (`raised: False`) — go straight to step 4 and skip step 3b.
-- **If step 2 found MORE than one `sat:orbit_state` value:** **Expect** this to RAISE
-  (`ValueError`, spec 58 AC11) — the message enumerates `(orbit_state, relative_orbit)` pairs
-  with acquisition counts and ROI coverage. **This raise is the correct, intended behaviour**,
+- **If step 2 found MORE than one `sat:orbit_state` value:** **Expect** this to FAIL (spec 58
+  AC11). ⚠️ **Where the message appears:** with `runner="local"` the per-cell build runs inside
+  a **Snakemake subprocess**, so the D9 `ValueError` and its enumeration of
+  `(orbit_state, relative_orbit)` pairs with acquisition counts and ROI coverage print to your
+  **terminal**, and the exception this snippet catches is whatever the failed dispatch raises
+  afterwards (not the `ValueError` itself). **This failure is the correct, intended behaviour**,
   not a bug — proceed to step 3b using the enumeration to pick one.
+- **Paste the enumeration block from the terminal** alongside this step's `_result.json`. It is
+  the actual AC11 evidence; `_result_build_s1_no_filter.json` only records that the build
+  stopped. (That the verb-level exception is not itself the D9 `ValueError` is a known,
+  reported gap, not something this run-book is testing.)
 - **PASS if:** the outcome matches what step 2 predicted. A raise when step 2 saw one orbit
   state (or a silent success when it saw two) is the actual failure to report.
 
@@ -237,12 +245,18 @@ print(json.dumps(result, indent=2))
 The array `create_training_data` lands is flattened pixels, not a raster — for a visual check,
 build ONE grid cell's cube directly and export it as a GeoTIFF:
 
+**If step 3b was needed** (the window has more than one orbit state), set `ORBIT` below to
+the same value you used there; otherwise leave it `None`. `build_datacube` applies
+`properties_filter` itself, so this step does not have to pre-filter the catalog.
+
 ```bash
 .venv/bin/python -c "
 import geopandas as gpd, os, numpy as np, rasterio
 from fsd.catalog.catalog import TileCatalog, filter_gdf
 from fsd.datacube import builder
 from fsd import collections as _collections
+
+ORBIT = None  # e.g. 'ascending' -- must match step 3b if step 3b ran
 
 cat = TileCatalog('tests/outputs/p58_p2/imagery_s1/catalog.parquet').read()
 shapes = gpd.read_file('../shapefiles/s2grid=476da24.geojson')
@@ -253,6 +267,7 @@ builder.build_datacube(
     catalog_subset=flat, shape_gdf=shapes,
     startdate='2018-04-01', enddate='2018-09-30', bands=['vv', 'vh'], mosaic_days=20,
     export_folderpath=out, if_missing_files='warn',
+    properties_filter=({'sat:orbit_state': ORBIT} if ORBIT else None),
 )
 dc = np.load(os.path.join(out, 'datacube.npy'))
 md = np.load(os.path.join(out, 'metadata.pickle.npy'), allow_pickle=True)[()]

@@ -98,6 +98,23 @@ def filter_gdf(
     return overlapping
 
 
+def properties_filter_values(want) -> list[str]:
+    """The requested value(s) for ONE `properties_filter` key, as a list of strings.
+
+    A bare scalar is one value, never an iterable to be unpacked: D9 names
+    `sat:orbit_state` (a string) AND `sat:relative_orbit`, which is an **integer** in
+    the STAC `sat` extension — `list(146)` raises `TypeError`, and `list("descending")`
+    would silently become ten one-character values.
+
+    Comparison is on the **string form of both sides**, so `146` and `"146"` select the
+    same rows and canonicalize to the same digest. Without that, a caller who spelled an
+    int property as a string got a silent filter to zero rows — the exact failure D9.1
+    exists to prevent, arrived at from a third direction.
+    """
+    values = list(want) if isinstance(want, (list, tuple, set, frozenset)) else [want]
+    return [str(v) for v in values]
+
+
 def filter_by_properties(
     gdf: gpd.GeoDataFrame,
     properties_filter: Mapping[str, str | Sequence[str]] | None,
@@ -116,7 +133,8 @@ def filter_by_properties(
     """
     if not properties_filter:
         return gdf
-    parsed = [json.loads(p) if p else {} for p in gdf["properties"]]
+    parsed = [json.loads(p) if isinstance(p, str) and p else {}
+              for p in gdf["properties"]]
     carried_keys: set[str] = set()
     for props in parsed:
         carried_keys.update(props)
@@ -130,8 +148,7 @@ def filter_by_properties(
     for props in parsed:
         keep = True
         for key, want in properties_filter.items():
-            wants = [want] if isinstance(want, str) else list(want)
-            if props.get(key) not in wants:
+            if key not in props or str(props[key]) not in properties_filter_values(want):
                 keep = False
                 break
         mask.append(keep)

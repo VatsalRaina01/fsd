@@ -8,12 +8,39 @@ this — read [`docs/history.md`](docs/history.md).
 
 ## Resuming after a break — start here
 
-**Spec 58 P2 (`sentinel-1-rtc`) is IMPLEMENTED (2026-09-11, `worktree-spec58-p2` @ `006da39`),
-green, and NOT YET REVIEWED OR MERGED. The next action is the OPUS REVIEW** (`/model opus`,
-`/effort high`), against `specs/58-collection-agnostic-verbs.md` §4/§5's P2 section and
-`CLAUDE.md`'s conventions — see "Most recent entry" for what was built and the three bugs already
-found during implementation (review is looking for what implementation missed, not re-finding
-those). **After review: the user runs `runbooks/58-p2-window-a.md` (AC15) — do not skip it**;
+**Spec 58 P2 (`sentinel-1-rtc`) is IMPLEMENTED and REVIEWED (review 2026-09-12), green, and NOT
+YET MERGED. The next action is the USER RUNNING `runbooks/58-p2-window-a.md` (AC15).** The Opus
+review found **two real bugs + one spec deviation**, all fixed on `worktree-spec58-p2` with tests
+(suite now **1133 passed / 104 skipped**, ruff clean):
+
+1. **`properties_filter` could not filter on `sat:relative_orbit`** — D9 names it as the other
+   property the generic filter serves, and it is an **int** in STAC. `list(146)` raised
+   `TypeError`; the string `"146"` matched **zero rows silently**, the exact failure D9.1 exists
+   to prevent. Fixed with `catalog.properties_filter_values` (scalar-tolerant, compares string
+   forms), used by BOTH the filter and the digest canonicalization so `146` and `"146"` are one
+   selection and one cube path.
+2. **`build_datacube` never applied `properties_filter`, only enforced.** D9: "The filter is
+   applied both there and upstream ... applying it twice is idempotent." It now takes
+   `properties_filter=` and filters before enforcing — which also unblocks the run-book's direct-
+   builder QGIS step, whose only recourse to a mixed-orbit raise had been to pre-filter by hand.
+3. Hardened `filter_by_properties` against a non-`str` `properties` cell (NaN → `json.loads`
+   `TypeError`).
+
+**Two findings reported, NOT fixed — they need the user's call, see the review hand-off:**
+(a) **D17's declared `nodata=-32768` never reaches a cube.** The build takes nodata from the
+catalog COLUMN (`declaration.nodata` is only a fallback, per its own docstring) and
+`mpc._items_to_gdf` writes `config.NODATA` (0) for every collection. This is **harmless today** —
+`crop_tif` hands rasterio the build sentinel as the mask fill, so source `-32768` pixels are
+translated to 0 and excluded from the median (now pinned by a test) — and `NODATA = 0` is a
+workspace convention (`CLAUDE.md`). But the declared value is decorative, which D17's table does
+not say. (b) **AC11's raise is only a `ValueError` at the `build_datacube` level.** Through
+`create_training_data` with `runner="local"` the build runs in a **Snakemake subprocess**: the
+enumeration prints to the terminal but is not catchable by the caller. Run-book step 3a was
+corrected to match; whether the verb needs an in-process preflight is new design, so it was not
+implemented.
+
+See "Most recent entry" for what P2 built and the three bugs implementation itself found.
+**Next: the user runs `runbooks/58-p2-window-a.md` (AC15) — do not skip it**;
 P1's own re-download run-book found three real bugs that two review passes had missed. **Only
 after the run-book comes back green** does the standing practice apply: `--no-ff` merge
 `worktree-spec58-p2` into `main` and prune the worktree.
@@ -25,10 +52,11 @@ cut and pushed.** ⚠️ **`main` is ~14 commits AHEAD of `origin/main` — ever
 unpushed**, and P2's merge will add one more.
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Review spec 58 P2** in `worktree-spec58-p2` (`.claude/worktrees/spec58-p2`, commit `006da39`)
-   — do NOT re-enter via a fresh `EnterWorktree`, which branches from `origin/main` and would miss
-   the P2 commits; use `EnterWorktree(path=".../worktree-spec58-p2")` or a plain `cd`. Then hand
-   the run-book to the user; then merge + prune; then **push `main`** (still unpushed — the
+2. **Spec 58 P2 is reviewed.** Its branch `worktree-spec58-p2` (`.claude/worktrees/spec58-p2`)
+   holds the implementation + the review fixes — do NOT re-enter via a fresh `EnterWorktree`,
+   which branches from `origin/main` and would miss them; use
+   `EnterWorktree(path=".../worktree-spec58-p2")` or a plain `cd`. Run
+   `runbooks/58-p2-window-a.md`; then merge + prune; then **push `main`** (still unpushed — the
    user's call).
 3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
    **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity

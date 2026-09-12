@@ -27,7 +27,12 @@ from fsd import collections as _collections
 from fsd import config
 from fsd import progress as _progress
 from fsd.catalog import declaration as declaration_module
-from fsd.catalog.catalog import TileCatalog, filter_by_properties, filter_gdf
+from fsd.catalog.catalog import (
+    TileCatalog,
+    filter_by_properties,
+    filter_gdf,
+    properties_filter_values,
+)
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.storage import fs
 from fsd.workflows import runners
@@ -63,9 +68,11 @@ def _canonicalize_properties_filter(
         return ""
     parts = []
     for key in sorted(properties_filter):
-        want = properties_filter[key]
-        values = [want] if isinstance(want, str) else list(want)
-        parts.append(f"{key}=" + ",".join(sorted(str(v) for v in values)))
+        # Same scalar/string normalization the FILTER uses, so a selection that
+        # selects one set of rows is one digest -- `146` and `"146"` must not be two
+        # cube paths for the same rows (spec 58 D9, `sat:relative_orbit` is an int).
+        values = properties_filter_values(properties_filter[key])
+        parts.append(f"{key}=" + ",".join(sorted(values)))
     return ";".join(parts)
 
 

@@ -327,3 +327,144 @@ def test_ac14_no_fsd_code_reads_pc_sdk_subscription_key():
         if any(pat in p.read_text() for pat in read_patterns)
     ]
     assert hits == []
+
+
+# --- review findings (Opus review of P2, 2026-09-12) ---------------------------------
+
+class _FakeS1Item:
+    """The minimum duck-typed STAC item `mpc._items_to_gdf` reads (id/datetime/
+    geometry/properties/get_self_href) -- no `s2:processing_baseline`, like every real
+    sentinel-1-rtc item."""
+
+    id = "S1B_IW_GRDH_1SDV_20180601T165014_rtc"
+    datetime = pd.Timestamp("2018-06-01", tz="UTC")
+    properties = {"sat:orbit_state": "ascending", "sat:relative_orbit": 146}
+    geometry = shapely.geometry.mapping(shapely.geometry.box(0, 0, 1, 1))
+
+    def get_self_href(self):
+        return "https://example/x"
+
+
+def _write_float_tif(path, value, *, crs, transform):
+    with rasterio.open(
+        path, "w", driver="GTiff", height=4, width=4, count=1,
+        dtype="float32", crs=crs, transform=transform, nodata=-32768,
+    ) as dst:
+        dst.write(np.full((1, 4, 4), value, dtype=np.float32))
+
+
+def test_s1_source_nodata_is_translated_to_the_build_sentinel_not_medianed(tmp_path):
+    """RTC writes its nodata as `-32768`, but the build's nodata is the CATALOG COLUMN's
+    value (`declaration.nodata` is only the fallback for rows with no such column), and
+    `mpc._items_to_gdf` writes `config.NODATA` (0) for every collection -- so a real S1
+    cube's sentinel is 0, not the declared -32768.
+
+    That is safe, and this pins WHY: `raster.images.crop_tif` hands `rasterio.mask` the
+    build's nodata as the fill, so pixels at the SOURCE nodata are masked on read and
+    come back as the build sentinel -- and `median_mosaic(mask_value=...)` then excludes
+    them. Two acquisitions in one window, one all-nodata and one valid: the median must
+    be the valid value, never a blend with -32768 (~ -16384).
+
+    (`fsd.config.NODATA = 0` is a workspace-wide convention, `CLAUDE.md`; D17's declared
+    -32768 therefore documents the SOURCE's value, and does not reach the cube.)"""
+    decl = _collections.get("sentinel-1-rtc")
+    ingested_nodata = int(
+        mpc._items_to_gdf([_FakeS1Item()], collection="sentinel-1-rtc",
+                          declaration=decl)["nodata"].iloc[0]
+    )
+    assert ingested_nodata == config.NODATA  # the build sentinel, not decl.nodata
+
+    crs = "EPSG:32633"
+    transform = from_origin(500000, 5000000, 10, 10)
+    tile_box = shapely.geometry.box(500000, 4999960, 500040, 5000000)
+
+    rows = []
+    for n, (ts, value) in enumerate([
+        (pd.Timestamp("2018-06-02", tz="UTC"), -32768.0),
+        (pd.Timestamp("2018-06-04", tz="UTC"), 0.2),
+    ]):
+        p = tmp_path / f"vv_{n}.tif"
+        _write_float_tif(p, value, crs=crs, transform=transform)
+        rows.append({
+            "id": f"s1_{n}", "filepath": str(p), "band": "vv", "timestamp": ts,
+            "geometry": tile_box, "area_contribution": 100.0,
+            "offset": 0, "nodata": ingested_nodata,
+            "properties": json.dumps({"sat:orbit_state": "ascending"}),
+        })
+    catalog_subset = gpd.GeoDataFrame(rows, crs=crs)
+    shape_gdf = gpd.GeoDataFrame({"geometry": [tile_box]}, crs=crs)
+
+    out = tmp_path / "cube"
+    builder.build_datacube(
+        catalog_subset=catalog_subset, shape_gdf=shape_gdf,
+        startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 6, 21),
+        bands=["vv"], mosaic_days=20, declaration=decl,
+        export_folderpath=str(out), if_missing_files=None,
+    )
+    dc = fs.load_npy(str(out / "datacube.npy"))
+    assert dc.shape == (1, 4, 4, 1)
+    assert dc[0, 0, 0, 0] == pytest.approx(0.2)
+
+
+def test_properties_filter_matches_a_non_string_property_value():
+    """D9 names `sat:relative_orbit` as the other thing `properties_filter` serves
+    ("with no extra code"). It is an INTEGER in STAC. Passing the int raised
+    `TypeError: 'int' object is not iterable` (`list(146)`); passing the string "146"
+    matched zero rows silently -- the exact "user concludes their ROI has no coverage"
+    failure D9.1 exists to prevent. Both spellings must select the row."""
+    gdf = gpd.GeoDataFrame({"properties": [
+        json.dumps({"sat:orbit_state": "ascending", "sat:relative_orbit": 146}),
+        json.dumps({"sat:orbit_state": "ascending", "sat:relative_orbit": 44}),
+    ]})
+    assert len(catalog.filter_by_properties(gdf, {"sat:relative_orbit": 146})) == 1
+    assert len(catalog.filter_by_properties(gdf, {"sat:relative_orbit": "146"})) == 1
+    assert len(catalog.filter_by_properties(gdf, {"sat:relative_orbit": [146, 44]})) == 2
+
+
+def test_properties_filter_digest_accepts_a_non_string_value():
+    """The same scalar bug on the identity side: `_canonicalize_properties_filter` did
+    `list(want)` for anything non-`str`, so an int selection raised before it could
+    reach a digest. An int and its string spelling must canonicalize alike, or one
+    selection would be two cube paths."""
+    key_int = create_datacube._canonicalize_properties_filter({"sat:relative_orbit": 146})
+    key_str = create_datacube._canonicalize_properties_filter({"sat:relative_orbit": "146"})
+    assert key_int == key_str != ""
+
+
+def test_build_datacube_applies_properties_filter_itself(tmp_path):
+    """D9: "The filter is applied both there [build_datacube] and upstream where the
+    catalog is queried ... applying it twice is idempotent." P2 implemented enforcement
+    only, so a caller handing `build_datacube` an unfiltered mixed-orbit subset -- the
+    direct-builder path, which is what run-book 58-p2's QGIS step does -- could be told
+    it was wrong but had no way to narrow it. Filtering here makes the raise
+    recoverable in place, and stays idempotent for rows `setup` already filtered."""
+    crs = "EPSG:32633"
+    transform = from_origin(500000, 5000000, 10, 10)
+    tile_box = shapely.geometry.box(500000, 4999960, 500040, 5000000)
+    p = tmp_path / "vv.tif"
+    _write_float_tif(p, 0.3, crs=crs, transform=transform)
+
+    rows = [
+        {"id": f"s1_{n}", "filepath": str(p), "band": "vv",
+         "timestamp": pd.Timestamp("2018-06-02", tz="UTC"), "geometry": tile_box,
+         "area_contribution": 100.0, "offset": 0, "nodata": -32768,
+         "properties": json.dumps({"sat:orbit_state": orbit})}
+        for n, orbit in enumerate(["ascending", "descending"])
+    ]
+    catalog_subset = gpd.GeoDataFrame(rows, crs=crs)
+    shape_gdf = gpd.GeoDataFrame({"geometry": [tile_box]}, crs=crs)
+    decl = _collections.get("sentinel-1-rtc")
+    kwargs = dict(
+        catalog_subset=catalog_subset, shape_gdf=shape_gdf,
+        startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 6, 21),
+        bands=["vv"], mosaic_days=20, declaration=decl, if_missing_files=None,
+    )
+    with pytest.raises(ValueError, match="sat:orbit_state"):
+        builder.build_datacube(export_folderpath=str(tmp_path / "a"), **kwargs)
+
+    builder.build_datacube(
+        export_folderpath=str(tmp_path / "b"),
+        properties_filter={"sat:orbit_state": "ascending"}, **kwargs,
+    )
+    dc = fs.load_npy(str(tmp_path / "b" / "datacube.npy"))
+    assert dc[0, 0, 0, 0] == pytest.approx(0.3)

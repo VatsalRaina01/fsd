@@ -22,6 +22,7 @@ import os
 import time
 import uuid
 import warnings
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 
 import geopandas as gpd
@@ -31,6 +32,7 @@ from rasterio.crs import CRS
 
 from fsd import config
 from fsd.catalog import declaration as declaration_module
+from fsd.catalog.catalog import filter_by_properties
 from fsd.catalog.declaration import (
     MASK_TYPE_CATEGORICAL_CLASSES,
     S2_L2A_DECLARATION,
@@ -287,6 +289,7 @@ def build_datacube(
     mosaic_days: int = config.MOSAIC_DAYS,
     reference_band: str | None = None,
     declaration: CollectionDeclaration | None = None,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     export_folderpath: str,
     mosaic_scheme: str = config.MOSAIC_SCHEME,
     njobs: int = 1,
@@ -336,9 +339,11 @@ def build_datacube(
     property (e.g. Sentinel-1's `sat:orbit_state`) raise, enumerating the available
     combinations with acquisition counts and ROI coverage -- the error is the discovery
     mechanism, since which combinations exist depends on geometry and dates. Callers
-    narrow to one combination upstream with `properties_filter` (applied where the
-    catalog is queried, `workflows.create_datacube.setup`) before the rows ever reach
-    here. Every P1 collection declares `mosaic_partition=()`, so this is a no-op for them.
+    narrow to one combination with `properties_filter`, which is applied both upstream
+    where the catalog is queried (`workflows.create_datacube.setup`) and again here --
+    idempotent when the rows arrived already filtered, and the only way to narrow the
+    partition for a caller that reaches the builder directly with a raw subset. Every P1
+    collection declares `mosaic_partition=()`, so this is a no-op for them.
 
     Per-row `offset`/`nodata` catalog columns carry the **radiometric**
     declaration: each image's declared additive offset is applied (read-time only,
@@ -367,6 +372,13 @@ def build_datacube(
     workflow path enables it via the `FSD_WRITE_READ_LOG` env var (see workflows.task).
     """
     declared = _resolve_build_declaration(catalog_subset, declaration)
+    # D9: the filter is applied HERE as well as upstream where the catalog is queried
+    # (`workflows.create_datacube.setup`) -- applying it twice is idempotent, and a
+    # caller that reaches the builder directly with an unfiltered subset (a notebook,
+    # a run-book's QGIS step) can then narrow the partition in place instead of only
+    # being told the rows span two. Resolved AFTER the declaration, whose stamp rides
+    # `catalog_subset.attrs` and need not survive a row slice.
+    catalog_subset = filter_by_properties(catalog_subset, properties_filter)
     _enforce_mosaic_partition(catalog_subset, shape_gdf, declared)
     if declared.native_grid:
         raise NotImplementedError(
