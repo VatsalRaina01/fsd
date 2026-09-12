@@ -22,6 +22,7 @@ import datetime
 import json
 import math
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import geopandas as gpd
@@ -333,6 +334,7 @@ def download(
     *,
     source: str = "mpc",
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     max_tiles: int,
     max_cloudcover: float | None = None,
     cog: bool = True,
@@ -360,6 +362,13 @@ def download(
     58 D6, a discovery-only capability, e.g. every optical collection but not Sentinel-1) --
     passing it against a collection with no cloud-cover concept raises rather than
     silently being a no-op filter.
+
+    `properties_filter` (spec 58 D9) narrows discovered tiles by STAC property, e.g.
+    `{"sat:orbit_state": "descending"}`, **before** `max_tiles` is checked. A download is a
+    whole-asset byte copy -- a ~5 km ROI still fetches entire ~250 km Sentinel-1 scenes --
+    and a build can only ever use ONE value of a partitioned property (D9's enforcement),
+    so fetching the others is pure waste. `source='cdse'` does not implement it and says so
+    at preflight rather than ignoring it.
 
     `max_concurrent` is how many band files transfer at once (`sources.mpc.download`'s
     `max_concurrent`, `sources.cdse.download`'s `max_concurrent_s3`). `None` keeps each
@@ -401,6 +410,13 @@ def download(
         errs.append("creds (CdseCredentials) required for source='cdse' with runner='local'.")
     if max_cloudcover is not None and not errs:
         errs += _check_cloudcover_capability(collection, max_cloudcover)
+    if properties_filter and source != "mpc":
+        # Loud, not silently ignored: a caller who narrowed to one orbit and still got
+        # every orbit's bytes would only find out from the disk bill (spec 58 D9).
+        errs.append(
+            f"properties_filter is not implemented for source={source!r} (only 'mpc'); "
+            "drop it, or use source='mpc'."
+        )
     _raise_preflight(errs)
 
     _configure_storage(storage)
@@ -425,6 +441,7 @@ def download(
             root_folderpath=dst_folderpath, catalog=catalog,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, progress=progress,
             collection=collection, max_concurrent=max_concurrent,
+            properties_filter=properties_filter,
         )
     else:
         _cdse_download(
@@ -457,6 +474,7 @@ def create_training_data(
     cores: int = 1,
     source: str = "mpc",
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     download: bool = False,
     max_tiles: int | None = None,
     max_cloudcover: float | None = None,
@@ -519,6 +537,14 @@ def create_training_data(
     `runner="aml"` dispatches download + the build fan-out + the flatten reduce onto an Azure
     ML cluster; `runner_kwargs` carries its
     `cluster=`/`environment=`/`root=`/`identity_client_id=` (see `workflows.runners`).
+
+    `properties_filter` (spec 58 D9) narrows the catalog to rows matching every given
+    STAC property (e.g. `{"sat:orbit_state": "descending"}`) before the build --
+    required for `collection="sentinel-1-rtc"`, whose ascending/descending passes must
+    never be medianed together (a build spanning both raises, enumerating what is
+    available). A key no row in the catalog carries at all raises rather than silently
+    filtering to zero rows. Every P1 collection declares no partition, so omitting this
+    (the default) is a no-op for them.
     """
     if adapter is not None and feature_sequence is not None:
         raise PreflightError(
@@ -608,6 +634,7 @@ def create_training_data(
             bands=bands, collection=collection,
             mosaic_scheme=config.MOSAIC_SCHEME,
             adapter=adapter, feature_sequence=feature_sequence, aggregate=aggregate,
+            properties_filter=properties_filter,
         )
         stamp_filepath = os.path.join(export_folderpath, _FLATTEN_STAMP_NAME)
         if _stamp.matches_stamp(stamp_filepath, identity) and _flatten_outputs_present(
@@ -719,7 +746,7 @@ def create_training_data(
         # re-runs and `overwrite="flatten"` both take the scoped path.
         overwrite_setup_csv=build_overwrite,
         overwrite=build_overwrite, runner=runner, runner_kwargs=runner_kwargs,
-        collection=collection,
+        collection=collection, properties_filter=properties_filter,
     )
 
     # Flatten phase delegates to `flatten_training_data` -- no duplicated reduce/
@@ -765,7 +792,7 @@ def _flatten_identity(input_df: pd.DataFrame, *, id_col, filepath_col, adapter, 
     )
     params: dict = {}
     for col in ("bands", "mosaic_days", "startdate", "enddate", "collection",
-               "mosaic_scheme"):
+               "mosaic_scheme", "properties_filter"):
         if col in input_df.columns:
             # An empty/NaN field round-trips through CSV as NaN, not "" -- normalize,
             # or this never matches `_flatten_identity_from_request`'s freshly-computed
@@ -785,6 +812,7 @@ def _flatten_identity_from_request(
     startdate, enddate, mosaic_days: int, bands: list[str],
     collection: str, mosaic_scheme: str,
     adapter, feature_sequence, aggregate,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> dict:
     """The same identity `_flatten_identity` computes, but from the REQUEST rather than
     from `input.csv`.
@@ -807,6 +835,7 @@ def _flatten_identity_from_request(
     window_segment = _create_datacube.window_folder_segment(
         startdate, enddate, mosaic_days, bands=bands, mosaic_scheme=mosaic_scheme,
         collection=collection, declaration=_collections.get(collection),
+        properties_filter=properties_filter,
     )
     # `input.csv` never gets a row for a shape `setup` found no imagery for, so
     # `_flatten_identity` -- computed FROM `input.csv` -- never names them either. Without
@@ -828,6 +857,7 @@ def _flatten_identity_from_request(
         "enddate": [str(pd.to_datetime(enddate, utc=True))],
         "collection": [collection],
         "mosaic_scheme": [mosaic_scheme],
+        "properties_filter": [_create_datacube._canonicalize_properties_filter(properties_filter)],
         "aggregate": _fingerprint_aggregate(aggregate),
         "features": _fingerprint_features(adapter, feature_sequence),
     }
@@ -1442,6 +1472,7 @@ def run_inference(
     grid_size_km: float = 5,
     scale_fact: float = 1.1,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     # --- shared ---
     predict_batch_size: int | None = None,
     skip_nan: bool = True,
@@ -1539,7 +1570,7 @@ def run_inference(
             model, spec, roi, output_folderpath, errs,
             catalog_filepath=catalog_filepath, startdate=startdate, enddate=enddate,
             mosaic_days=mosaic_days, bands=bands, grid_size_km=grid_size_km,
-            scale_fact=scale_fact, collection=collection,
+            scale_fact=scale_fact, collection=collection, properties_filter=properties_filter,
             predict_batch_size=predict_batch_size, skip_nan=skip_nan, merge=merge,
             merge_crs=merge_crs, cores=cores, cubes_per_task=cubes_per_task, overwrite=overwrite,
             collection_id=collection_id, dt=dt, runner=runner, runner_kwargs=runner_kwargs,
@@ -1740,7 +1771,7 @@ def _imagery_missing_message(roi, startdate, enddate, bands, *, catalog_filepath
 def _run_inference_roi(
     model, spec, roi, output_folderpath, errs, *,
     catalog_filepath, startdate, enddate, mosaic_days, bands,
-    grid_size_km, scale_fact, collection,
+    grid_size_km, scale_fact, collection, properties_filter=None,
     predict_batch_size, skip_nan, merge, merge_crs, cores, cubes_per_task, overwrite,
     collection_id, dt, runner="local", runner_kwargs=None, registry=None,
 ) -> InferenceResult:
@@ -1873,6 +1904,7 @@ def _run_inference_roi(
                 startdate=startdate, enddate=enddate, bands=bands,
                 mosaic_days=mosaic_days,
                 csv_filepath=csv_filepath, label_col=None, collection=collection,
+                properties_filter=properties_filter,
             )
         except ValueError as exc:
             raise PreflightError(_imagery_missing_message(
@@ -1975,6 +2007,7 @@ def verify_adapter(
     grid_size_km: float = 5,
     scale_fact: float = 1.1,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     predict_batch_size: int | None = None,
     skip_nan: bool = True,
     runner: str = "local",
@@ -2154,6 +2187,7 @@ def verify_adapter(
         "roi": roi if isinstance(roi, str) else roi_gdf.to_json(default=str),
         "startdate": str(startdate), "enddate": str(enddate), "mosaic_days": int(mosaic_days),
         "bands": sorted(bands), "collection": collection,
+        "properties_filter": _create_datacube._canonicalize_properties_filter(properties_filter),
         "grid_size_km": grid_size_km, "scale_fact": scale_fact, "cell": chosen_cell,
     }
     cube_filepath = os.path.join(export_folderpath, "datacube.npy")
@@ -2212,6 +2246,7 @@ def verify_adapter(
                 mosaic_days=mosaic_days,
                 csv_filepath=build_csv_filepath, label_col=None, cores=1,
                 runner=runner, runner_kwargs=runner_kwargs, collection=collection,
+                properties_filter=properties_filter,
             )
         except ValueError as exc:
             raise PreflightError(_imagery_missing_message(

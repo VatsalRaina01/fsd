@@ -252,6 +252,7 @@ def _fake_run_create_datacube(
         "enddate": [str(pd.to_datetime(enddate, utc=True))],
         "collection": [collection],
         "mosaic_scheme": [mosaic_scheme],
+        "properties_filter": [""],  # spec 58 D9: real `setup` always writes this column
     }).to_csv(csv_filepath, index=False)
 
 

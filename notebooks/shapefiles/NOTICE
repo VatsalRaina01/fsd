@@ -18,7 +18,23 @@ AT_2018_TRAIN.geojson
 
 AT_ROI.geojson
 s2grid=476da24.geojson
-  Authored for this repository — a demo area of interest over Austria, and one S2 grid cell
-  lying entirely inside MGRS tile T33UWP. No third-party data.
+s2grid=4772924.geojson
+  Authored for this repository — a demo area of interest over Austria, and two S2 grid cells
+  (level 11, ~5 km) each lying entirely inside MGRS tile T33UWP. No third-party data.
+
+  The two cells are NOT interchangeable, and the difference is the whole reason the second
+  one exists (spec 58 P2 review, 2026-09-12):
+
+    476da24  — south-east of Vienna (16.034–16.116 °E, 48.106–48.156 °N). Imagery only:
+               it lies 47.7 km outside AT_ROI, and the nearest AT_2018_TRAIN field is
+               50.2 km away, so ZERO labels fall in it. Use it for single-tile imagery
+               tests (download, datacube, CRS) that need no labels.
+    4772924  — in the Waldviertel (15.390–15.472 °E, 48.482–48.532 °N), inside AT_ROI.
+               43 AT_2018_TRAIN fields fall in it across 7 crop classes, and the Austria
+               archive covers it with 21 T33UWP granules over 21 dates in Apr–Sep 2018.
+               Use it for anything that needs imagery AND labels — e.g. the
+               create_training_data leg of runbooks/58-p2-window-a.md.
+
+  Generated with fsd.grid.roi_to_s2_grids(AT_ROI, grid_size_km=5).
 
 Precedent for committing test data with a NOTICE: tests/data/tutorial/NOTICE.

@@ -18,6 +18,7 @@ in-process dict that does not exist inside a fresh AML job container (ADR 0031).
 from __future__ import annotations
 
 from fsd.catalog.declaration import CollectionDeclaration
+from fsd.collections import s1_rtc as _s1_rtc
 from fsd.collections import s2_l2a as _s2_l2a
 
 __all__ = ["register", "get", "known", "REGISTRY"]
@@ -58,3 +59,4 @@ def known() -> list[str]:
 
 
 register(_s2_l2a.COLLECTION_ID, _s2_l2a.DECLARATION)
+register(_s1_rtc.COLLECTION_ID, _s1_rtc.DECLARATION)

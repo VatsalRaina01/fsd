@@ -27,6 +27,7 @@ import dataclasses
 import datetime
 import json
 import os
+from collections.abc import Mapping, Sequence
 from typing import Callable
 
 import geopandas as gpd
@@ -35,6 +36,7 @@ import shapely
 
 from fsd import collections as _collections
 from fsd import config
+from fsd.catalog import catalog as catalog_module
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.raster.cog import stamp_or_reencode
 from fsd.sources._s2_radiometry import offset_for_item
@@ -49,11 +51,12 @@ __all__ = [
     "download_shard",
 ]
 
-# The collections this source serves (spec 58 D15). MPC also hosts sentinel-1-rtc and
-# hls2-s30/hls2-l30 (see specs/58 D17/P3), but P1 registers no declaration for them, so
-# this source-x-collection guard names only what fsd can actually build against today --
-# extended in P2/P3 as each collection's declaration ships.
-SERVED_COLLECTIONS = (config.SATELLITE_S2L2A,)
+# The collections this source serves (spec 58 D15). MPC also hosts hls2-s30/hls2-l30
+# (see specs/58 D17/P3), but P1/P2 register no declaration for them yet, so this
+# source-x-collection guard names only what fsd can actually build against today --
+# extended in P3 once that collection's declaration ships. sentinel-1-rtc joins here in
+# P2 (D17): MPC serves it anonymously, same as S2 L2A (D10, retracted).
+SERVED_COLLECTIONS = (config.SATELLITE_S2L2A, "sentinel-1-rtc")
 
 
 @dataclasses.dataclass
@@ -191,6 +194,10 @@ def _items_to_gdf(
     """Parse MPC STAC items into a catalog GeoDataFrame. Pure — no network — so
     it is unit-testable with duck-typed fake items (`.id`, `.datetime`,
     `.geometry`, `.properties`, `.assets[*].href`)."""
+    # `offset_for_item` reads S2's processing-baseline properties, which a
+    # non-radiometric collection's items do not carry -- it raises for them. A
+    # declaration with `radiometry_bands=()` has no offset to derive (spec 58 D17).
+    needs_offset = declaration.radiometry_bands != ()
     rows = [
         {
             "id": it.id,
@@ -198,7 +205,7 @@ def _items_to_gdf(
             "timestamp": it.datetime,
             "s3url": _item_self_href(it),
             "cloud_cover": it.properties.get("eo:cloud_cover"),
-            "offset": offset_for_item(it),
+            "offset": offset_for_item(it) if needs_offset else 0,
             "scale": declaration.scale,
             "nodata": config.NODATA,
             "properties": json.dumps(dict(it.properties)),
@@ -470,6 +477,7 @@ def download(
     max_concurrent: int | None = None,
     should_stop: Callable[[], bool] | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> DownloadResult:
     """Discover matching MPC `collection` tiles and download the requested band files
     to `root_folderpath`, local or remote/blob. No credentials required: MPC is anonymous.
@@ -480,6 +488,14 @@ def download(
 
     `should_stop` (optional) is checked in the submit loop, with the same
     halt-new-submissions-only semantics as `cdse.download`.
+
+    `properties_filter` (spec 58 D9) narrows the discovered tiles by STAC property —
+    e.g. `{"sat:orbit_state": "descending"}` — **before** the `max_tiles` cap, so the cap
+    measures what will actually be transferred. This matters because a transfer is a
+    whole-asset byte copy: a partitioned collection like `sentinel-1-rtc` returns every
+    orbit's scenes over an ROI, and a build can only ever use one of them (D9's partition
+    enforcement), so downloading both is pure waste. Same semantics as everywhere else —
+    a key no discovered tile carries raises, naming the keys they do carry.
     """
     import concurrent.futures
     import time
@@ -504,10 +520,22 @@ def download(
         roi_gdf, max_cloudcover,
     )
 
+    # Applied BEFORE the cap: `max_tiles` is a guardrail on bytes about to be moved, so it
+    # must count the tiles this run will actually transfer, not the ones discovery saw.
+    n_discovered = len(tiles)
+    tiles = catalog_module.filter_by_properties(tiles, properties_filter)
+
     if len(tiles) > max_tiles:
+        narrowed = ""
+        if properties_filter:
+            narrowed = (f" (already narrowed from {n_discovered} by "
+                        f"properties_filter={dict(properties_filter)!r})")
         raise ValueError(
-            f"{len(tiles)} matched tiles exceed max_tiles={max_tiles}. Narrow "
-            "the query or raise max_tiles."
+            f"{len(tiles)} matched tiles exceed max_tiles={max_tiles}{narrowed}. Narrow "
+            "the query or raise max_tiles. Note each tile transfers its WHOLE asset "
+            "file(s), not just the ROI window -- for a partitioned collection "
+            "(e.g. sentinel-1-rtc) pass properties_filter to drop the orbits the build "
+            "cannot use anyway."
         )
 
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}

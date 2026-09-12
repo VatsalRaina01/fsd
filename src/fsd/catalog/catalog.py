@@ -21,6 +21,8 @@ silently default a missing column (see `read()`).
 from __future__ import annotations
 
 import datetime
+import json
+from collections.abc import Mapping, Sequence
 
 import geopandas as gpd
 import pandas as pd
@@ -94,6 +96,61 @@ def filter_gdf(
     )
 
     return overlapping
+
+
+def properties_filter_values(want) -> list[str]:
+    """The requested value(s) for ONE `properties_filter` key, as a list of strings.
+
+    A bare scalar is one value, never an iterable to be unpacked: D9 names
+    `sat:orbit_state` (a string) AND `sat:relative_orbit`, which is an **integer** in
+    the STAC `sat` extension — `list(146)` raises `TypeError`, and `list("descending")`
+    would silently become ten one-character values.
+
+    Comparison is on the string form of both sides, so `146` and `"146"` select the same
+    rows and canonicalize to the same digest rather than filtering silently to zero (D9.1).
+    """
+    values = list(want) if isinstance(want, (list, tuple, set, frozenset)) else [want]
+    return [str(v) for v in values]
+
+
+def filter_by_properties(
+    gdf: gpd.GeoDataFrame,
+    properties_filter: Mapping[str, str | Sequence[str]] | None,
+) -> gpd.GeoDataFrame:
+    """Keep only rows whose `properties` JSON matches every key in `properties_filter`
+    (spec 58 D9, part 1) -- e.g. `{"sat:orbit_state": "descending"}`. A value may be a
+    single string or a sequence of acceptable values.
+
+    A key that **no row in `gdf` carries at all** raises, naming the keys the catalog
+    DOES carry -- filtering silently to zero rows is the same "user concludes their ROI
+    has no coverage" failure the D9 partition guard exists to prevent, from the other
+    direction. A key that some rows carry and others don't, or whose requested value(s)
+    happen to match no row, is an ordinary (possibly empty) filter result, not an error.
+
+    `None`/empty `properties_filter` is a no-op — returns `gdf` unchanged, not a copy.
+    """
+    if not properties_filter:
+        return gdf
+    parsed = [json.loads(p) if isinstance(p, str) and p else {}
+              for p in gdf["properties"]]
+    carried_keys: set[str] = set()
+    for props in parsed:
+        carried_keys.update(props)
+    unknown = sorted(k for k in properties_filter if k not in carried_keys)
+    if unknown:
+        raise ValueError(
+            f"properties_filter key(s) {unknown} are not carried by any row in this "
+            f"catalog; keys this catalog carries: {sorted(carried_keys)}."
+        )
+    mask = []
+    for props in parsed:
+        keep = True
+        for key, want in properties_filter.items():
+            if key not in props or str(props[key]) not in properties_filter_values(want):
+                keep = False
+                break
+        mask.append(keep)
+    return gdf[mask]
 
 
 class TileCatalog:

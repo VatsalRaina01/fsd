@@ -22,6 +22,7 @@ import os
 import time
 import uuid
 import warnings
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 
 import geopandas as gpd
@@ -31,6 +32,7 @@ from rasterio.crs import CRS
 
 from fsd import config
 from fsd.catalog import declaration as declaration_module
+from fsd.catalog.catalog import filter_by_properties
 from fsd.catalog.declaration import (
     MASK_TYPE_CATEGORICAL_CLASSES,
     S2_L2A_DECLARATION,
@@ -129,6 +131,88 @@ def _resolve_build_declaration(
     return declaration
 
 
+# --- mosaic partition enforcement (spec 58 D9) --------------------------------
+
+def _enforce_mosaic_partition(
+    catalog_subset: gpd.GeoDataFrame, shape_gdf: gpd.GeoDataFrame,
+    declared: CollectionDeclaration,
+) -> None:
+    """A build whose rows span more than one value of `declared.mosaic_partition`
+    raises, enumerating what is available (spec 58 D9, AC11) -- e.g. mixing ascending
+    and descending Sentinel-1 passes into one median would blend physically
+    incompatible backscatter geometries.
+
+    No-op when the declaration enforces nothing (every P1 collection: `()`), or when
+    `catalog_subset` carries no rows/`properties` to check (an upstream filter already
+    reduced this build to nothing, a separate failure mode).
+
+    `partition_policy="auto"` is declared but not implemented in P2 (D9.2) -- raises
+    `NotImplementedError` rather than silently picking an orbit for the caller.
+    """
+    if not declared.mosaic_partition:
+        return
+    if declared.partition_policy == "auto":
+        raise NotImplementedError(
+            "build_datacube: partition_policy='auto' is declared but not implemented "
+            "(spec 58 D9.2) -- a growable seam fails loudly rather than silently "
+            "auto-selecting a partition. Pick one explicitly via properties_filter."
+        )
+    if declared.partition_policy != "raise":
+        raise ValueError(
+            f"build_datacube: unknown partition_policy={declared.partition_policy!r}; "
+            "expected 'raise' or 'auto'."
+        )
+    if "properties" not in catalog_subset.columns or catalog_subset.shape[0] == 0:
+        return
+
+    by_id = catalog_subset.drop_duplicates(subset="id")
+    parsed = {
+        row["id"]: (json.loads(row["properties"]) if row["properties"] else {})
+        for _, row in by_id.iterrows()
+    }
+    enforced_keys = list(declared.mosaic_partition)
+    distinct = {tuple(props.get(k) for k in enforced_keys) for props in parsed.values()}
+    if len(distinct) <= 1:
+        return
+
+    # Report `sat:relative_orbit` alongside the enforced key(s) when the catalog
+    # carries it -- offered and reported, never enforced (D9's evidence split).
+    report_keys = list(enforced_keys)
+    if "sat:relative_orbit" not in report_keys and any(
+        "sat:relative_orbit" in props for props in parsed.values()
+    ):
+        report_keys.append("sat:relative_orbit")
+
+    shape_union = None
+    if len(shape_gdf):
+        shape_union = shapely.unary_union(
+            shape_gdf.to_crs(catalog_subset.crs)["geometry"]
+        )
+
+    groups: dict[tuple, list] = {}
+    for id_value, props in parsed.items():
+        key = tuple(props.get(k) for k in report_keys)
+        groups.setdefault(key, []).append(id_value)
+
+    lines = []
+    for key, ids in sorted(groups.items(), key=lambda kv: [str(v) for v in kv[0]]):
+        label = ", ".join(f"{k}={v!r}" for k, v in zip(report_keys, key))
+        coverage_note = ""
+        if shape_union is not None and shape_union.area > 0:
+            group_union = shapely.unary_union(by_id[by_id["id"].isin(ids)]["geometry"])
+            coverage = min(1.0, group_union.intersection(shape_union).area / shape_union.area)
+            coverage_note = f", ROI coverage {coverage * 100:.1f}%"
+        lines.append(f"  ({label}): {len(ids)} acquisition(s){coverage_note}")
+
+    raise ValueError(
+        "build_datacube: rows span multiple values of "
+        f"{tuple(enforced_keys)} (spec 58 D9) -- medianing across them would blend "
+        "physically incompatible acquisitions. Pass properties_filter to select one, "
+        "e.g. properties_filter={" + repr(enforced_keys[0]) + ": <value>}. "
+        "Available:\n" + "\n".join(lines)
+    )
+
+
 # --- caller helper: TileCatalog rows -> band-flattened rows -------------------
 
 def flatten_catalog(
@@ -140,8 +224,11 @@ def flatten_catalog(
     file — the band-flattened form `build_datacube` consumes.
 
     Output cols: `id, filepath, band, timestamp, geometry, area_contribution,
-    offset, nodata`. Non-raster files (e.g. `MTD_TL.xml`) are skipped; `band` =
-    filename minus ext. `offset` is the tile-row's declared additive radiometric offset
+    offset, nodata, properties`. Non-raster files (e.g. `MTD_TL.xml`) are skipped; `band` =
+    filename minus ext. `properties` is the tile-row's source-item STAC properties
+    verbatim (JSON string, spec 58 D12), duplicated across a tile's band rows -- what
+    `build_datacube`'s `mosaic_partition` enforcement reads. `offset` is the tile-row's
+    declared additive radiometric offset
     for a band the resolved declaration says carries radiometry
     (`CollectionDeclaration.is_radiometry_band`), else 0 — mask/QA bands are never
     harmonized.
@@ -161,11 +248,12 @@ def flatten_catalog(
     declaration = _resolve_declaration(catalog_gdf, declaration)
     data = {k: [] for k in
             ("id", "filepath", "band", "timestamp", "geometry", "area_contribution",
-             "offset", "nodata")}
+             "offset", "nodata", "properties")}
     for _, row in catalog_gdf.iterrows():
         tile_offset = row.get("offset", 0) or 0
         tile_nodata = row.get("nodata", 0)
         tile_nodata = 0 if tile_nodata is None else tile_nodata
+        tile_properties = row.get("properties", "{}") or "{}"
         for file in str(row["files"]).split(","):
             band = next((file[:-len(e)] for e in _RASTER_EXTS if file.endswith(e)),
                         None)
@@ -179,6 +267,11 @@ def flatten_catalog(
             data["area_contribution"].append(row["area_contribution"])
             data["offset"].append(tile_offset if declaration.is_radiometry_band(band) else 0)
             data["nodata"].append(tile_nodata)
+            # The source item's STAC properties verbatim (spec 58 D12), carried through
+            # band-flattening so `_enforce_mosaic_partition` can read `sat:orbit_state`
+            # from the SAME rows the build actually assembles from -- not a re-read of
+            # the pre-flatten catalog, which would risk drifting from what was built.
+            data["properties"].append(tile_properties)
     flat = gpd.GeoDataFrame(data=data, crs=catalog_gdf.crs)
     declaration_module.to_attrs(flat, declaration)
     return flat
@@ -196,6 +289,7 @@ def build_datacube(
     mosaic_days: int = config.MOSAIC_DAYS,
     reference_band: str | None = None,
     declaration: CollectionDeclaration | None = None,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     export_folderpath: str,
     mosaic_scheme: str = config.MOSAIC_SCHEME,
     njobs: int = 1,
@@ -240,6 +334,17 @@ def build_datacube(
     `native_grid=True` (a source with one native grid, e.g. ERA5) raises for the same reason
     -- the non-tiled build path is designed for but not implemented.
 
+    **`declared.mosaic_partition` is enforced before anything else runs** (spec 58 D9,
+    `_enforce_mosaic_partition`): rows spanning more than one value of a partitioned
+    property (e.g. Sentinel-1's `sat:orbit_state`) raise, enumerating the available
+    combinations with acquisition counts and ROI coverage -- the error is the discovery
+    mechanism, since which combinations exist depends on geometry and dates. Callers
+    narrow to one combination with `properties_filter`, which is applied both upstream
+    where the catalog is queried (`workflows.create_datacube.setup`) and again here --
+    idempotent when the rows arrived already filtered, and the only way to narrow the
+    partition for a caller that reaches the builder directly with a raw subset. Every P1
+    collection declares `mosaic_partition=()`, so this is a no-op for them.
+
     Per-row `offset`/`nodata` catalog columns carry the **radiometric**
     declaration: each image's declared additive offset is applied (read-time only,
     `apply_offset`) before the median mosaic, and the build's nodata is read from
@@ -267,6 +372,14 @@ def build_datacube(
     workflow path enables it via the `FSD_WRITE_READ_LOG` env var (see workflows.task).
     """
     declared = _resolve_build_declaration(catalog_subset, declaration)
+    # D9: the filter is applied HERE as well as upstream where the catalog is queried
+    # (`workflows.create_datacube.setup`) -- applying it twice is idempotent, and a
+    # caller that reaches the builder directly with an unfiltered subset (a notebook,
+    # a run-book's QGIS step) can then narrow the partition in place instead of only
+    # being told the rows span two. Resolved AFTER the declaration, whose stamp rides
+    # `catalog_subset.attrs` and need not survive a row slice.
+    catalog_subset = filter_by_properties(catalog_subset, properties_filter)
+    _enforce_mosaic_partition(catalog_subset, shape_gdf, declared)
     if declared.native_grid:
         raise NotImplementedError(
             "build_datacube: a native single-grid source (declaration.native_grid="
@@ -331,8 +444,18 @@ def build_datacube(
 
     # Reference grid = the merged reference-band (B08, 10 m) profile. Everything is
     # resampled TO this real known-10 m image, not to an abstract target grid.
+    #
+    # `reference_band=None` (spec 58 D11: bands are already grid-uniform -- S1 RTC,
+    # HLS) has its own meaning, distinct from "no band matches": use the FIRST
+    # requested band's images to build the reference grid. `catalog_gdf["band"] ==
+    # None` would otherwise compare true for nothing, leaving `ref_indices` empty and
+    # `_get_merged_profile` failing on zero images. Since every band is already
+    # grid-uniform for these collections, `_get_indices_to_resample` naturally finds
+    # nothing to resample against whichever band is picked here -- no separate
+    # "skip resample" branch is needed.
     with _timed(timings, "reference_profile"):
-        ref_indices = catalog_gdf.loc[catalog_gdf["band"] == reference_band, "image_index"]
+        reference_grid_band = reference_band if reference_band is not None else bands[0]
+        ref_indices = catalog_gdf.loc[catalog_gdf["band"] == reference_grid_band, "image_index"]
         reference_profile = _get_merged_profile(
             indices=ref_indices, data_profile_list=data_profile_list, dst_crs=dst_crs,
             nodata=nodata, njobs=njobs,

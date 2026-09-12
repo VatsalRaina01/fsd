@@ -6,7 +6,12 @@ summary: fsd's verbs are Sentinel-2-shaped — `scl_mask_classes` sits on three 
 # Spec 58 — collection-agnostic verbs
 
 **Status:** **SIGNED OFF (user, 2026-09-04)** — all 18 decisions confirmed individually during
-the grilling session. Not implemented. · **Opened:** 2026-09-04
+the grilling session. P1 implemented + merged 2026-09-05.
+**AMENDED 2026-09-07 for P2; amendments SIGNED OFF (user, 2026-09-11):** **D10 is RETRACTED**
+(MPC dropped the `sentinel-1-rtc` key requirement in 2024; verified anonymously against the live
+endpoints), **AC14 is replaced**, D9 gains its build-time parameter (`properties_filter`), and D17
+gains the declaration table. D1-D8, D11-D16, D18 and AC1-AC10 are untouched by this amendment.
+· **Opened:** 2026-09-04
 **Advances:** [#11](https://github.com/nikhilsrajan/fsd/issues/11) (additional sources + the `Source`
 contract), [#21](https://github.com/nikhilsrajan/fsd/issues/21) (source-capability model).
 **Reserves:** [#98](https://github.com/nikhilsrajan/fsd/issues/98) (computed masks — shape only).
@@ -223,27 +228,92 @@ cycle means fixing it caps the ROI to one swath and roughly halves temporal dens
 — the global operational crop system — deliberately does not fix it. fsd enforces what is nearly
 always wrong to mix, and reports what is context-dependent.
 
+**The build-time selector is generic, not `orbit_state=`.** Every verb that carries
+`collection=` gains one parameter, **`properties_filter: Mapping[str, str | Sequence[str]] |
+None`**, keyed by STAC property name — `{"sat:orbit_state": "descending"}`. A named
+`orbit_state=` kwarg would be `scl_mask_classes` a second time: one collection's concept
+hardcoded into a collection-agnostic verb signature (D3, D14). The generic form also serves
+`sat:relative_orbit` — filterable and reported, never enforced — with no extra code, and lets a
+caller's own registered collection partition on a property fsd has never heard of.
+
+Three parts, in order:
+
+1. **Filter.** Rows are matched against the generic `properties` column (D12). A key that no row
+   in the queried catalog carries **raises**, naming the keys the catalog does carry — filtering
+   silently to zero rows is the same "user concludes their ROI has no coverage" failure D10 was
+   written to prevent, arrived at from the other direction.
+2. **Enforce.** For each key in `declaration.mosaic_partition`, the surviving rows must hold
+   exactly one distinct value. `partition_policy="raise"` raises with the enumeration above.
+   `"auto"` is **declared but not implemented in P2** — `NotImplementedError`, per the standing
+   "a growable seam fails loudly" rule.
+3. **Identity.** `properties_filter` is the "partition selection" D4 already names as the third
+   component of `params_key`, canonicalised (keys sorted, each value set sorted) so one selection
+   is one stable string. **An empty selection contributes nothing to the digest** — not an empty
+   string, no component at all — so P2 does **not** move the cube paths of any collection that
+   declares no partition. P1 already invalidated every path once (D4's accepted consequence);
+   doing it again for a parameter S2 never uses would be gratuitous. **AC13 falls out of this**
+   rather than needing its own mechanism.
+
+**Enforcement lives in `build_datacube`** — the one choke point every entry point passes
+through — so no caller can route around it. The filter is applied both there and upstream where
+the catalog is queried (`workflows.create_datacube.setup`), so coverage accounting and the
+known-empty manifest see the same rows the build will; applying it twice is idempotent.
+
+fsd does not enumerate the legal values of `sat:orbit_state`. The STAC `sat` extension defines
+four (`ascending`, `descending`, `geostationary`, and `crossing` for an acquisition spanning a
+polar crossing); fsd enforces single-valuedness over whatever the catalog actually holds, which
+stays correct if a provider emits `crossing` or a value the extension adds later.
+
 `orbit_state` / `relative_orbit` are **build-time selectors, not merely download filters**: a catalog
 downloaded without a filter contains mixed orbits, and the build is where the partition must be
 satisfied. They therefore appear on every verb that builds, and filter the catalog before the build.
 
-### D10 — Authentication is a collection capability
+### D10 — Authentication is a collection capability — **RETRACTED 2026-09-07**
 
-`CollectionDeclaration.requires_subscription_key: bool`; `sentinel-1-rtc` sets it. MPC as a *provider*
-is anonymous; one of its collections is not.
+**The premise was false. `sentinel-1-rtc` needs no key, and P2 builds no preflight for one.**
 
-**No new verb parameter.** `PC_SDK_SUBSCRIPTION_KEY` is already the mechanism (`config.py:75`), read
-by the `planetary-computer` package itself, so there is nothing to plumb — an fsd parameter would be
-a second source of truth for the same secret.
+The original decision read: `CollectionDeclaration.requires_subscription_key: bool`, set by
+`sentinel-1-rtc`, enforced by a preflight before any network call, because unauthenticated RTC
+access fails with **404, not 403**, and a 404 from a STAC search is indistinguishable from a
+legitimate empty result. That rationale was sound *for the behaviour it described*. The behaviour
+no longer exists.
 
-**A preflight before any network call** is mandatory here rather than nice-to-have: unauthenticated
-RTC access fails with **404, not 403**, and a 404 from a STAC search is indistinguishable from a
-legitimate empty result. Without the preflight a user without a key concludes their ROI has no
-Sentinel-1 coverage. The error must name the collection, the env var, and that the key comes from the
-**developer portal**, not a JupyterHub token.
+**What it rested on:** two MPC discussion threads from **January and February 2023**, in which a
+Microsoft maintainer states a Planetary Computer account is required to retrieve SAS tokens for
+RTC and points at `PC_SDK_SUBSCRIPTION_KEY`.
 
-On AML the key rides the existing Key Vault path (`secrets.get_secret`) already used for CDSE
-credentials. No second secret mechanism.
+**What actually holds:** on **2024-05-24**, ~16 months later, an MPC maintainer announced the
+requirement was dropped — *"We're no longer requiring API key access for Sentinel-1 RTC, or any
+dataset, in our catalog. Anonymously requested SAS tokens will be able to access the RTC data, and
+so accounts requests are no longer needed."* **Verified empirically 2026-09-07**, with
+`PC_SDK_SUBSCRIPTION_KEY` unset on this machine: an anonymous
+`GET /api/sas/v1/token/sentinel-1-rtc` returns `{"msft:expiry": ..., "token": ...}` — the same
+shape, from the same endpoint, as the anonymous `sentinel-2-l2a` request beside it.
+
+⚠️ **The trap, recorded because the next reader will hit it.** The live `sentinel-1-rtc` STAC
+collection JSON *still carries the sentence* "A Planetary Computer account is required to retrieve
+SAS tokens" in its own description. That text is stale, and it contradicts the endpoint's actual
+behaviour. **The token endpoint is the authority; a description string is documentation, not
+enforcement.** This is the `verify-the-primitive` lesson again: the forum post alone would not have
+been enough to flip a decision either — the two together, one of them a live probe, are.
+
+**Consequences for P2:**
+
+- `sentinel-1-rtc` declares **`requires_subscription_key=False`**.
+- **No preflight, no key plumbing.** There is nothing to gate.
+- **AC14 is withdrawn** and replaced (see §5): it asserted a raise that must now never happen.
+
+**The field stays; it is not removed in P2.** `from_json` raises on an unknown field at a known
+version, and the standing no-read-time-back-compat-shim policy (`catalog/catalog.py:177`, spec 34
+`[G4]`) means dropping the field invalidates every catalog written under P1 — including the
+**67.2 GB Austria archive re-ingested 2026-09-07**, whose Parquet footer carries it. Paying a
+re-ingest to delete one `False` is the wrong trade. Removal belongs to the next declaration-version
+bump; filed as an issue rather than carried as a comment.
+
+**The key remains optional and still worth setting.** It raises MPC's *signing* rate limit (specs
+32, 37) — a throughput concern, not a capability, already handled by the `planetary-computer`
+package reading the env var itself. Still no fsd parameter: that would be a second source of truth
+for the same secret.
 
 ### D11 — `reference_band` is decoupled from `native_grid`
 
@@ -333,6 +403,34 @@ self-describe, against ADR 0011/0012), and is EPSG:4326 on a degree grid that wi
 **false**, and MPC's incorrect "radiometric terrain correction applied" GRD asset description:
 **ADR 0028**.
 
+**The declaration P2 ships** (artifact facts verified against the live collection + item JSONs,
+2026-09-07):
+
+| field | value | why |
+|---|---|---|
+| `reference_band` | `None` | VV and VH are both 10 m — nothing to resample (D11) |
+| `native_grid` | `False` | scene-based, like S2 |
+| `mask_spec` | `None` | SAR has no cloud/QA band; the mask + drop steps are skipped (#35) |
+| `nodata` | `-32768` | declared in every RTC `raster:bands` |
+| `scale` | `1.0` | gamma naught is already calibrated linear power, not scaled DN |
+| `radiometry_bands` | `()` | **empty, not `None`** — `None` means "every band carries radiometry"; no S1 band does |
+| `band_aliases` | `()` | EO `common_name`s are optical; SAR polarizations have no canonical alias (D8 does not apply) |
+| `supports_cloud_cover` | `False` | gated by D6; AC14 |
+| `requires_subscription_key` | `False` | D10, retracted |
+| `mosaic_partition` | `("sat:orbit_state",)` | D9 |
+| `partition_policy` | `"raise"` | D9 |
+
+**Asset keys are lowercase `vv` / `vh`** — not the title-case polarization names the collection
+summary displays. An item also carries **`tilejson` and `rendered_preview`**, which are *not* data
+assets; any code that enumerates an item's assets rather than selecting the requested bands will
+pick them up. P1's `_select_item_files` raise (AC6) selects by requested band, so the path is
+already correct — this is a note for whoever adds an "all bands" convenience later.
+
+**Window A coverage is confirmed, anonymously.** A `GET /api/stac/v1/search` over the
+`s2grid=476da24` bbox (16.0337, 48.106, 16.1158, 48.1557) for 2018-04-01/2018-09-30 returns RTC
+items — e.g. `S1B_IW_GRDH_1SDV_20180930T165014_..._rtc`, `sat:orbit_state: "ascending"`,
+`sat:relative_orbit: 146`, `proj:epsg: 32633` (the same UTM zone as T33UWP). AC15 is buildable.
+
 ### D18 — Validation uses two windows, because HLS cannot reach 2018
 
 MPC's HLS2 archive starts **2020-01-01**; the labelled Austria window is Apr–Sep **2018**, and the
@@ -360,7 +458,7 @@ D1, D2, D3, D4, D5, D6, D7 (shape + `bits`, unused), D8 (mechanism + the `_selec
 D11, D12, D13, D14, D15, D16. Ends green with **S2 L2A behaving identically through the new
 machinery**, proven by pytest and existing synthetic fixtures — no network, no cluster.
 
-**P2 — `sentinel-1-rtc`.** D9, D10, D17. Validated on Window A.
+**P2 — `sentinel-1-rtc`.** D9, D17, and D10 **as retracted** (2026-09-07: the key requirement is gone, so P2 builds no preflight and withdraws AC14). Validated on Window A.
 
 **P3 — `hls2-s30` + `hls2-l30`.** D7 (bitmask implementation), D8 (the alias maps). Validated on
 Window B.
@@ -389,12 +487,20 @@ Window B.
 
 11. A build whose rows span both orbit states **raises**, and the message enumerates the available
     `(orbit_state, relative_orbit)` pairs with counts and coverage.
-12. The same build with `orbit_state=` given succeeds.
-13. Two cubes differing only in `orbit_state` resolve to different paths.
-14. With `PC_SDK_SUBSCRIPTION_KEY` unset, `collection="sentinel-1-rtc"` raises at preflight
-    **before any network call**.
-15. Window A run-book: S1 and S2 cubes build for the same cell/window; `create_training_data`
-    produces arrays from each with **no verb-signature difference between them**.
+12. The same build with `properties_filter={"sat:orbit_state": ...}` given succeeds; and a
+    `properties_filter` key that **no catalog row carries** raises, naming the keys it does carry
+    (never a silent filter to zero rows).
+13. Two cubes differing only in the `properties_filter` selection resolve to different paths, **and
+    an S2 build resolves to the same path it did before P2** — an empty selection must not perturb
+    the digest (D9.3).
+14. *(replaces the withdrawn key-preflight AC, D10)* `max_cloudcover=` against
+    `collection="sentinel-1-rtc"` raises at preflight naming the collection — D6's capability gate
+    exercised by a **real** declaration rather than a synthetic fixture — and `grep` shows no fsd
+    code path reads `PC_SDK_SUBSCRIPTION_KEY` on account of S1.
+15. Window A run-book, **run with `PC_SDK_SUBSCRIPTION_KEY` unset** (the unset key is now part of
+    the assertion, not an obstacle to it): S1 and S2 cubes build for the same cell/window;
+    `create_training_data` produces arrays from each with **no verb-signature difference between
+    them**.
 
 **P3**
 
@@ -461,13 +567,31 @@ two-window design instead.
   and absent `raster:bands`; HLS's 30 m `proj:shape [3660,3660]`, asset lists and `eo:cloud_cover`;
   the `common_name` assignments — including MPC naming OLI band 5 `nir08` in `landsat-c2-l2` but
   `nir` in `hls2-l30`, the self-contradiction that justifies fsd declaring its own map.
-- **[MPC `sentinel-1-rtc` collection metadata](https://planetarycomputer.microsoft.com/dataset/sentinel-1-rtc)**
-  — "A Planetary Computer account is required to retrieve SAS tokens to read the RTC data": the whole
-  of D10.
-- **[microsoft/PlanetaryComputer discussions #167, #182, #184](https://github.com/microsoft/PlanetaryComputer/discussions/167)**
-  — that unauthenticated RTC access fails as **404, not 403**, and that the key must come from the
-  developer portal rather than JupyterHub. This is why D10's preflight is mandatory rather than
-  advisory.
+- ⚠️ **[MPC `sentinel-1-rtc` collection metadata](https://planetarycomputer.microsoft.com/dataset/sentinel-1-rtc)**
+  — "A Planetary Computer account is required to retrieve SAS tokens to read the RTC data". This
+  sentence sourced the original D10 and **is stale**: it is still served in the live collection JSON
+  as of 2026-09-07 while the endpoint it describes no longer enforces it. Credited here as the
+  source of a **retracted** decision, and kept as a standing warning that a provider's own prose can
+  contradict its own API.
+- ⚠️ **[microsoft/PlanetaryComputer discussions #167, #182, #184](https://github.com/microsoft/PlanetaryComputer/discussions/167)**
+  — that unauthenticated RTC access fails as **404, not 403**, and that the key comes from the
+  developer portal rather than JupyterHub. Dated **Jan–Feb 2023**; superseded by #351 below. This
+  was the whole basis of D10's mandatory preflight.
+- **[microsoft/PlanetaryComputer discussion #351](https://github.com/microsoft/PlanetaryComputer/discussions/351)**
+  (2024-05-24) — an MPC maintainer: *"We're no longer requiring API key access for Sentinel-1 RTC,
+  or any dataset, in our catalog. Anonymously requested SAS tokens will be able to access the RTC
+  data, and so accounts requests are no longer needed."* The retraction of D10.
+- **MPC live endpoints, probed anonymously 2026-09-07 with `PC_SDK_SUBSCRIPTION_KEY` unset** —
+  `GET /api/sas/v1/token/sentinel-1-rtc` returns a token (identical in shape to the `sentinel-2-l2a`
+  one), and `GET /api/stac/v1/search` over the Window A bbox returns 2018 RTC items. The empirical
+  half of D10's retraction, and the source of D17's asset keys (`vv`/`vh`, lowercase, alongside the
+  non-data `tilejson`/`rendered_preview`), `sat:orbit_state`/`sat:relative_orbit` values and
+  `proj:epsg: 32633`. A forum post alone would not have been enough to flip a signed-off decision.
+- **[STAC `sat` extension](https://github.com/stac-extensions/sat/blob/main/README.md)** — that
+  `sat:orbit_state` is an open vocabulary of four values (`ascending`, `descending`,
+  `geostationary`, and `crossing` for a polar-crossing acquisition), and that `sat:relative_orbit`
+  counts orbits within a repeat cycle. Why D9 enforces single-valuedness over whatever the catalog
+  holds instead of hardcoding an enum.
 - **[Copernicus Sentinel-1 documentation](https://documentation.dataspace.copernicus.eu/Data/SentinelMissions/Sentinel1.html)**
   and **[ESA SNAP Calibration Operator](https://step.esa.int/main/wp-content/help/versions/10.0.0/snap-toolboxes/eu.esa.microwavetbx.sar.op.calibration.ui/operators/CalibrationOp.html)**
   — GRD's `value = DN²/A²` with a **range-dependent** gain plus a GRD constant offset: the reason

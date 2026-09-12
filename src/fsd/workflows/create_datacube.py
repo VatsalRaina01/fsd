@@ -18,6 +18,7 @@ import io
 import json
 import os
 import tempfile
+from collections.abc import Mapping, Sequence
 
 import geopandas as gpd
 import pandas as pd
@@ -26,7 +27,12 @@ from fsd import collections as _collections
 from fsd import config
 from fsd import progress as _progress
 from fsd.catalog import declaration as declaration_module
-from fsd.catalog.catalog import TileCatalog, filter_gdf
+from fsd.catalog.catalog import (
+    TileCatalog,
+    filter_by_properties,
+    filter_gdf,
+    properties_filter_values,
+)
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.storage import fs
 from fsd.workflows import runners
@@ -40,9 +46,34 @@ COL_LABEL = "label"
 # `workflows.runners`, not this dedupe (TODO #53).
 _UNIT_IDENTITY_COLS = (
     COL_ID, "startdate", "enddate", "bands", "mosaic_days", "mosaic_scheme", "collection",
+    "properties_filter",
 )
 
 DECLARATION_FILENAME = "declaration.json"
+
+
+def _canonicalize_properties_filter(
+    properties_filter: Mapping[str, str | Sequence[str]] | None,
+) -> str:
+    """Canonical string form of a `properties_filter` selection (spec 58 D9.3): keys
+    sorted, each value set sorted, so one selection is one stable string regardless of
+    the caller's dict/list ordering. `None`/empty -> `""`.
+
+    Callers that fold this into `params_key`'s digest add the result ONLY when
+    non-empty -- an empty selection must contribute no component at all (not even an
+    empty string joined in), or every existing S2 cube path would move (spec 58 D9.3,
+    AC13).
+    """
+    if not properties_filter:
+        return ""
+    parts = []
+    for key in sorted(properties_filter):
+        # Same scalar/string normalization the FILTER uses, so a selection that
+        # selects one set of rows is one digest -- `146` and `"146"` must not be two
+        # cube paths for the same rows (spec 58 D9, `sat:relative_orbit` is an int).
+        values = properties_filter_values(properties_filter[key])
+        parts.append(f"{key}=" + ",".join(sorted(values)))
+    return ";".join(parts)
 
 
 class NoWorkUnitsError(ValueError):
@@ -59,6 +90,7 @@ class NoWorkUnitsError(ValueError):
 
 def params_key(
     bands: list[str], mosaic_scheme: str, *, collection: str, declaration: CollectionDeclaration,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> str:
     """A short digest of the params EVERY cell in a run shares -- never the set of ids.
 
@@ -74,18 +106,27 @@ def params_key(
     SAME path. Any collection-level change now correctly invalidates cached cube paths --
     mask classes, nodata, reference band, radiometry, whatever the declaration holds.
 
+    `properties_filter` (spec 58 D9.3) is the build-time partition selection --
+    canonicalized (`_canonicalize_properties_filter`) and appended ONLY when non-empty,
+    so an empty selection contributes NOTHING to the digest, not even an empty component:
+    a collection that declares no partition (every P1 collection) must resolve to exactly
+    the path it did before P2.
+
     Uses the same string form `setup` writes to `input.csv` (`",".join(...)`), so a digest
     computed here and one computed from a read-back `input.csv` row agree byte-for-byte.
     """
-    raw = "|".join([
-        ",".join(bands), mosaic_scheme, collection, declaration_module.digest(declaration),
-    ])
+    parts = [",".join(bands), mosaic_scheme, collection, declaration_module.digest(declaration)]
+    selection = _canonicalize_properties_filter(properties_filter)
+    if selection:
+        parts.append(selection)
+    raw = "|".join(parts)
     return hashlib.sha1(raw.encode()).hexdigest()[:8]
 
 
 def window_folder_segment(
     startdate: datetime.datetime, enddate: datetime.datetime, mosaic_days: int, *,
     bands: list[str], mosaic_scheme: str, collection: str, declaration: CollectionDeclaration,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> str:
     """The one run-folder segment shared by every cell of a request:
     `<startdate>_<enddate>_m<mosaic_days>_<params_key>`.
@@ -95,7 +136,8 @@ def window_folder_segment(
     """
     startdate = pd.to_datetime(startdate, utc=True)
     enddate = pd.to_datetime(enddate, utc=True)
-    key = params_key(bands, mosaic_scheme, collection=collection, declaration=declaration)
+    key = params_key(bands, mosaic_scheme, collection=collection, declaration=declaration,
+                     properties_filter=properties_filter)
     return f"{startdate.strftime('%Y%m%d')}_{enddate.strftime('%Y%m%d')}_m{mosaic_days}_{key}"
 
 
@@ -127,6 +169,7 @@ def setup(
     mosaic_scheme: str = config.MOSAIC_SCHEME,
     max_concurrent: int = config.SETUP_MAX_CONCURRENT,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> None:
     """Per geometry: write geometry.geojson + catalog.parquet slice + input.csv row.
 
@@ -159,6 +202,15 @@ def setup(
     call, including the built-in `sentinel-2-l2a` default: nodes never consult the
     registry, so there is one code path rather than two where only a user's collection
     variant breaks, and only remotely.
+
+    `properties_filter` (spec 58 D9) narrows the catalog to rows matching every given
+    STAC property BEFORE the per-shape date+overlap slice (`filter_gdf`) -- "the filter
+    is applied ... where the catalog is queried". A key no row in the catalog carries at
+    all raises (`catalog.filter_by_properties`), naming the keys it does carry, rather
+    than silently slicing to zero rows. The canonicalized selection is folded into
+    `window_segment` (via `params_key`, D9.3) and recorded on every `input.csv` row it
+    produces, so a differently-filtered re-run never collides with this one on content
+    identity (`_UNIT_IDENTITY_COLS`) despite sharing every other parameter.
     """
     startdate = pd.to_datetime(startdate, utc=True)
     enddate = pd.to_datetime(enddate, utc=True)
@@ -199,10 +251,12 @@ def setup(
     # `abfss://` = 900 downloads of the same ~121 KiB parquet (~106 MiB, ~900 VPN
     # round-trips) before a single job was submitted. Same rows out, one read in.
     catalog_gdf = TileCatalog(catalog_filepath).read()
+    catalog_gdf = filter_by_properties(catalog_gdf, properties_filter)
 
     window_segment = window_folder_segment(startdate, enddate, mosaic_days,
                                             bands=bands, mosaic_scheme=mosaic_scheme,
-                                            collection=collection, declaration=declaration)
+                                            collection=collection, declaration=declaration,
+                                            properties_filter=properties_filter)
 
     # The declaration control file (spec 58 D13) -- written under the WINDOW segment, not
     # the run-folder root. One run folder holds many windows and (once P2 ships a second
@@ -314,6 +368,7 @@ def setup(
     input_df["mosaic_scheme"] = mosaic_scheme
     input_df["collection"] = collection
     input_df["bands"] = ",".join(bands)
+    input_df["properties_filter"] = _canonicalize_properties_filter(properties_filter)
 
     if fs.exists(csv_filepath):
         with fs.open(csv_filepath, "r") as f:
@@ -347,6 +402,14 @@ def _dedupe_on_unit_identity(input_df: pd.DataFrame) -> pd.DataFrame:
     key_df = input_df[cols].copy()
     for c in date_cols:
         key_df[c] = pd.to_datetime(key_df[c], utc=True).astype(str)
+    # `",".join([])` -> `""` -> an empty CSV field -> read back as NaN, not `""` (the
+    # same round-trip `_row_matches_window` documents for `bands`; `properties_filter`
+    # hits it too, since a request with no selection stores `""`). Without this, a
+    # CSV-round-tripped NaN in a non-date column survives `key_df.astype(str)` as an
+    # actual float under this pandas' string dtype (it does NOT become the literal
+    # string "nan"), and `"|".join` on a row containing it raises `TypeError`.
+    non_date_cols = [c for c in cols if c not in date_cols]
+    key_df[non_date_cols] = key_df[non_date_cols].fillna("")
     identity_key = key_df.astype(str).agg("|".join, axis=1)
 
     if "added_on" not in input_df.columns:
@@ -460,11 +523,18 @@ def _load_shapes_gdf(shapefilepath: str) -> gpd.GeoDataFrame:
 def _row_matches_window(
     row, *, bands: list[str], mosaic_days: int, startdate, enddate,
     mosaic_scheme: str, collection: str,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> bool:
     """Does an existing `input.csv` row belong to THIS request's window/params? Same
     canonicalization `_dedupe_on_unit_identity` uses (dates -> comparable ISO strings)
     so a row that round-tripped through CSV still compares correctly against in-memory
-    request values."""
+    request values.
+
+    `properties_filter` (spec 58 D9) is compared too, canonicalized -- a row from a
+    DIFFERENT partition selection over the same bands/window/collection must not be
+    mistaken for a match, or a re-run scoped to one orbit could silently adopt another
+    orbit's row.
+    """
     want = {
         "bands": ",".join(bands),
         "mosaic_days": str(mosaic_days),
@@ -472,6 +542,7 @@ def _row_matches_window(
         "enddate": str(pd.to_datetime(enddate, utc=True)),
         "mosaic_scheme": mosaic_scheme,
         "collection": collection,
+        "properties_filter": _canonicalize_properties_filter(properties_filter),
     }
     for col, want_val in want.items():
         if col not in row.index:
@@ -606,6 +677,7 @@ def build_shortfall_only(
     label_col: str | None, mosaic_scheme: str = config.MOSAIC_SCHEME,
     max_concurrent: int = config.SETUP_MAX_CONCURRENT,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> tuple[int, int, int]:
     """The build leg of the backward walk: call `setup` only for the shapes that need it.
 
@@ -626,7 +698,7 @@ def build_shortfall_only(
     shapes_gdf = _load_shapes_gdf(shapefilepath)
     window_segment = window_folder_segment(
         startdate, enddate, mosaic_days, bands=bands, mosaic_scheme=mosaic_scheme,
-        collection=collection, declaration=declaration,
+        collection=collection, declaration=declaration, properties_filter=properties_filter,
     )
     known_empty = _read_known_empty(run_folderpath, window_segment)
 
@@ -640,7 +712,7 @@ def build_shortfall_only(
                 lambda row: _row_matches_window(
                     row, bands=bands, mosaic_days=mosaic_days, startdate=startdate,
                     enddate=enddate, mosaic_scheme=mosaic_scheme,
-                    collection=collection,
+                    collection=collection, properties_filter=properties_filter,
                 ) and _row_matches_path(
                     row, run_folderpath=run_folderpath, window_segment=window_segment,
                 ),
@@ -724,6 +796,7 @@ def build_shortfall_only(
                 bands=bands, mosaic_days=mosaic_days,
                 csv_filepath=csv_filepath, label_col=label_col, mosaic_scheme=mosaic_scheme,
                 max_concurrent=max_concurrent, collection=collection,
+                properties_filter=properties_filter,
             )
         except NoWorkUnitsError:
             # `setup` raises when NONE of the shapes it was handed have tiles in range.
@@ -821,6 +894,7 @@ def run_create_datacube(
     runner: str = "local",
     runner_kwargs: dict | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ):
     """Run setup (unless csv exists), then dispatch only the cubes that are still missing.
 
@@ -852,7 +926,7 @@ def run_create_datacube(
                 startdate=startdate, enddate=enddate, bands=bands,
                 mosaic_days=mosaic_days,
                 csv_filepath=csv_filepath, label_col=label_col, mosaic_scheme=mosaic_scheme,
-                collection=collection,
+                collection=collection, properties_filter=properties_filter,
             )
             # This pass just re-derived every shape straight from the catalog, so any
             # known-empty record for this window is superseded by what `input.csv` now
@@ -864,7 +938,8 @@ def run_create_datacube(
                 window_folder_segment(startdate, enddate, mosaic_days, bands=bands,
                                       mosaic_scheme=mosaic_scheme,
                                       collection=collection,
-                                      declaration=_collections.get(collection)),
+                                      declaration=_collections.get(collection),
+                                      properties_filter=properties_filter),
             )
     else:
         build_shortfall_only(
@@ -873,7 +948,7 @@ def run_create_datacube(
             startdate=startdate, enddate=enddate, bands=bands,
             mosaic_days=mosaic_days,
             csv_filepath=csv_filepath, label_col=label_col, mosaic_scheme=mosaic_scheme,
-            collection=collection,
+            collection=collection, properties_filter=properties_filter,
         )
 
     if overwrite:

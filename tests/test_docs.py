@@ -245,7 +245,13 @@ _SNIPPET_DIRS = ("runbooks", "docs")
 # ```python fences made this test vacuous on its first write: run-book 43 has none
 # -- all three of its snippets are `python -c "..."` inside ```bash blocks, i.e.
 # exactly the file the test was added for.
-_SNIPPET_RE = re.compile(r'```(?:python|py)\n|python -c "\n', re.S)
+# ⚠️ The interpreter is NOT always spelled `python`: run-book 58-p2 invokes a specific
+# venv through a shell variable (`"$PY" -c "`) because its code lives in a worktree, not
+# the main checkout. Keying on the literal `python` silently dropped that whole run-book
+# from this test -- the same vacuous-selector trap the comment above records, one spelling
+# later. Match ANY `<word> -c "` opener; a non-Python one (`bash -c "`) simply fails
+# `ast.parse` below and is skipped, which is already the contract for prose-y snippets.
+_SNIPPET_RE = re.compile(r'```(?:python|py)\n|\S+ -c "\n', re.S)
 
 
 def _docs_with_python_snippets() -> list[Path]:
@@ -268,7 +274,7 @@ def _fsd_attr_uses(text: str):
     always parsed together.
     """
     blocks = list(re.findall(r"```(?:python|py)\n(.*?)```", text, re.S))
-    blocks += re.findall(r'python -c "\n(.*?)"\n', text, re.S)
+    blocks += re.findall(r'\S+ -c "\n(.*?)"\n', text, re.S)
     for block in blocks:
         try:
             tree = ast.parse(block)
@@ -332,3 +338,75 @@ def test_doc_snippets_use_real_fsd_attributes(path: Path):
             )
     assert not failures, f"{path.name} snippet references a missing fsd attribute:\n  " + \
         "\n  ".join(sorted(set(failures)))
+
+
+def test_snippet_selector_is_not_tied_to_the_literal_word_python():
+    """Regression: the selector keyed on `python -c "`, so run-book 58-p2 -- which runs a
+    specific venv through a shell variable, `"$PY" -c "`, because P2's code lives in a
+    worktree rather than the main checkout -- silently fell out of
+    `_docs_with_python_snippets()` entirely. The whole run-book stopped being checked,
+    with no failure to notice: the parametrized case simply vanished.
+
+    This pins the extractor on both spellings, so the next interpreter spelling
+    (`"$PY"`, `$PYTHON`, an absolute path) cannot quietly un-cover a run-book again."""
+    text = (
+        '```bash\n'
+        '"$PY" -c "\n'
+        'from fsd import api\n'
+        'api.download(roi=None)\n'
+        '"\n'
+        '```\n'
+        '```bash\n'
+        '.venv/bin/python -c "\n'
+        'from fsd.catalog import catalog\n'
+        'catalog.TileCatalog(\'x\')\n'
+        '"\n'
+        '```\n'
+    )
+    assert _SNIPPET_RE.search(text), "a `\"$PY\" -c` snippet must make the file selectable"
+    uses = set(_fsd_attr_uses(text))
+    assert ("fsd.api", "download") in uses, uses
+    assert ("fsd.catalog.catalog", "TileCatalog") in uses, uses
+
+
+def test_the_p2_runbook_is_actually_covered_by_the_snippet_check():
+    """The concrete file the regression above hid. Named explicitly: a selector that
+    compiles but matches nothing is the failure mode this whole test class exists for."""
+    selected = {p.name for p in _docs_with_python_snippets()}
+    assert "58-p2-window-a.md" in selected, sorted(selected)
+
+
+# --- run-book `<py> -c "..."` snippets must survive the shell wrapper ----------------
+
+_DASH_C_SNIPPET_RE = re.compile(r'\S+ -c "\n(.*?)\n"\n', re.S)
+
+
+def _dash_c_snippets_with_unescaped_quotes(text: str) -> list[str]:
+    """Lines inside a `<interpreter> -c "..."` body carrying an UNESCAPED `"`.
+
+    The body is wrapped in shell double quotes, so a bare `"` ends the string early and
+    the rest of the snippet is reinterpreted as shell -- a copy-paste that fails in a way
+    that looks nothing like the Python it came from. `\\"` is correct and common (three
+    existing run-books rely on it for f-strings); only a bare one is the bug.
+    """
+    offenders = []
+    for body in _DASH_C_SNIPPET_RE.findall(text):
+        for line in body.splitlines():
+            if re.search(r'(?<!\\)"', line):
+                offenders.append(line.strip())
+    return offenders
+
+
+@pytest.mark.parametrize(
+    "path", _docs_with_python_snippets(), ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_dash_c_snippets_have_no_unescaped_double_quotes(path: Path):
+    """Caught for real while writing run-book 58-p2: a comment reading
+    `# ... with "'str' object has no attribute 'tzinfo'".` inside a `"$PY" -c "` body
+    would have terminated the shell string mid-snippet. `ast.parse` is happy with it --
+    the Python is valid -- so only this check sees it."""
+    offenders = _dash_c_snippets_with_unescaped_quotes(path.read_text())
+    assert not offenders, (
+        f"{path.name}: unescaped \" inside a `-c \"...\"` body would end the shell "
+        "string early; escape it as \\\" :\n  " + "\n  ".join(offenders)
+    )
