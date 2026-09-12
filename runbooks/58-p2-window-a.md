@@ -47,11 +47,16 @@ against it directly; nothing here re-downloads S2.
 
 ## Prerequisites
 
-- `main` (or this branch, merged) at or after the commit implementing spec 58 P2. Check:
-  `git log --oneline -1` and confirm `fsd/collections/s1_rtc.py` exists.
-- The fsd venv with `[mpc,local,grid]`:
+- ⚠️ **Spec 58 P2 is NOT merged into `main`.** Its code lives only on the branch
+  `worktree-spec58-p2`, checked out at `fsd/.claude/worktrees/spec58-p2`. **Step 0 below is
+  what points the run at it** — skip Step 0 and step 1 dies at preflight with
+  `source='mpc' does not serve collection='sentinel-1-rtc'`, because the main checkout's
+  `SERVED_COLLECTIONS` is still S2-only.
+- The fsd venv with `[mpc,local,grid]`, in the **main** checkout (Step 0 uses it by absolute
+  path — do NOT `activate` it, and do not create a second venv in the worktree):
   ```bash
-  cd fsd && source .venv/bin/activate && pip install -e ".[dev,local,mpc,grid]"
+  cd ~/NASA-Harvest/project/fetch_satdata_claude/fsd
+  .venv/bin/pip install -e ".[dev,local,mpc,grid]"
   ```
 - **`PC_SDK_SUBSCRIPTION_KEY` must be UNSET for this run** — its absence is part of what step 1
   proves (D10: MPC dropped the RTC key requirement in 2024). Check and unset:
@@ -68,25 +73,66 @@ against it directly; nothing here re-downloads S2.
   reproject it and clip it to the cell themselves. ⚠️ It carries **EuroCrops' terms, not fsd's
   MIT** (`notebooks/shapefiles/NOTICE`) — fine to read locally here; do not redistribute its
   contents or paste field rows into a result block.
-- `tests/outputs/demo_e2e/imagery/catalog.parquet` exists (the S2 archive). If it does not,
-  stop — that is a different, larger problem than this run-book.
+- `$FSD_MAIN/tests/outputs/demo_e2e/imagery/catalog.parquet` exists — the S2 archive, in the
+  **main** checkout (`tests/outputs/` is gitignored, so it is NOT in the worktree; that is
+  why step 4 reaches for it by absolute path). If it does not exist, stop — that is a
+  different, larger problem than this run-book.
 - A few GB of disk and network for step 1 (one grid cell, ~6 months of S1 acquisitions — far
   smaller than a full-ROI S2 download).
 
 ## Steps
 
-Run every command from `fsd/`, with the venv active and `PC_SDK_SUBSCRIPTION_KEY` unset.
+Run every command from **the P2 worktree**, not from the main `fsd/` checkout — spec 58 P2
+is **not merged into `main`**, so the main checkout's `mpc.SERVED_COLLECTIONS` is still
+S2-only and step 1 fails preflight with
+`source='mpc' does not serve collection='sentinel-1-rtc'`.
+
+### Step 0 — set up the shell (do this once, in the terminal you will use)
+
+```bash
+cd ~/NASA-Harvest/project/fetch_satdata_claude/fsd/.claude/worktrees/spec58-p2
+
+export PYTHONPATH=src                                    # import P2's fsd, not main's
+export FSD_MAIN="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
+export PY="$FSD_MAIN/.venv/bin/python"                   # the venv lives in the main checkout
+export OUT="$FSD_MAIN/tests/outputs/p58_p2"              # outputs OUTLIVE this worktree
+unset PC_SDK_SUBSCRIPTION_KEY
+
+"$PY" -c "
+import fsd
+from fsd.sources import mpc
+from fsd import collections as c
+print('fsd from   :', fsd.__file__)
+print('collections:', c.known())
+print('mpc serves :', mpc.SERVED_COLLECTIONS)
+assert 'spec58-p2' in fsd.__file__, 'PYTHONPATH=src not picked up -- you are running main'
+assert 'sentinel-1-rtc' in mpc.SERVED_COLLECTIONS, 'P2 code not loaded'
+print('OK')
+"
+echo "FSD_MAIN=$FSD_MAIN"; echo "OUT=$OUT"
+```
+
+- **Expect:** `fsd from` ends in `.claude/worktrees/spec58-p2/src/fsd/__init__.py`,
+  `collections: ['sentinel-1-rtc', 'sentinel-2-l2a']`, and `OK`.
+- **PASS if:** it prints `OK`. If either assert fires, **stop** — every later step will fail in
+  a confusing way. `PYTHONPATH=src` is what makes the worktree's code win over the editable
+  install that points at the main checkout.
+- ⚠️ **Every step below assumes this shell.** A new terminal needs Step 0 again — `$PY`, `$OUT`
+  and `$FSD_MAIN` unset would silently write to `/imagery_s1` and friends.
+- Outputs go to the **main checkout's** `tests/outputs/p58_p2/` on purpose: this worktree
+  is deleted when P2 merges, and the downloaded S1 archive should survive that.
+
 
 ### Step 1 — download `sentinel-1-rtc` over Window A, anonymously
 
 ```bash
-.venv/bin/python -c "
+"$PY" -c "
 import json, os
 from fsd import api
 
 assert os.environ.get('PC_SDK_SUBSCRIPTION_KEY') is None, 'unset PC_SDK_SUBSCRIPTION_KEY first'
 
-dst = 'tests/outputs/p58_p2/imagery_s1'
+dst = '$OUT/imagery_s1'
 catalog_fp = api.download(
     roi='notebooks/shapefiles/s2grid=4772924.geojson',
     startdate='2018-04-01', enddate='2018-09-30',
@@ -97,8 +143,8 @@ catalog_fp = api.download(
 )
 result = {'step': 'download_s1', 'status': 'ok', 'pass': True,
           'metrics': {'catalog_filepath': catalog_fp}, 'expected': {}, 'error': None}
-os.makedirs('tests/outputs/p58_p2', exist_ok=True)
-with open('tests/outputs/p58_p2/_result_download_s1.json', 'w') as f:
+os.makedirs('$OUT', exist_ok=True)
+with open('$OUT/_result_download_s1.json', 'w') as f:
     json.dump(result, f, indent=2)
 print(json.dumps(result, indent=2))
 "
@@ -107,7 +153,7 @@ print(json.dumps(result, indent=2))
 - **Expect:** anonymous discovery + download (no key prompt, no 401/403/404), a handful of
   granules (a single ~5 km cell over 6 months, not a whole-ROI archive), `pass: True`.
 - **PASS if:** `_result_download_s1.json` has `pass: true` and
-  `tests/outputs/p58_p2/imagery_s1/catalog.parquet` exists.
+  `$OUT/imagery_s1/catalog.parquet` exists.
 - **If it fails with a 401/403/404 or a key prompt:** that contradicts D10 (retracted) —
   paste the exact error; do not set the key to work around it, that would hide the finding.
 - **If it fails / hangs:** Ctrl-C is safe; `mpc.download` skips files already on disk, so
@@ -116,11 +162,11 @@ print(json.dumps(result, indent=2))
 ### Step 2 — inspect the orbit states this window actually has
 
 ```bash
-.venv/bin/python -c "
+"$PY" -c "
 import json
 from fsd.catalog.catalog import TileCatalog
 
-gdf = TileCatalog('tests/outputs/p58_p2/imagery_s1/catalog.parquet').read()
+gdf = TileCatalog('$OUT/imagery_s1/catalog.parquet').read()
 orbits = {}
 for p in gdf['properties']:
     props = json.loads(p) if p else {}
@@ -130,7 +176,7 @@ result = {'step': 'inspect_orbits', 'status': 'ok', 'pass': True,
           'metrics': {'n_rows': int(len(gdf)),
                       'orbit_relative_orbit_counts': {str(k): v for k, v in orbits.items()}},
           'expected': {}, 'error': None}
-with open('tests/outputs/p58_p2/_result_inspect_orbits.json', 'w') as f:
+with open('$OUT/_result_inspect_orbits.json', 'w') as f:
     json.dump(result, f, indent=2)
 print(json.dumps(result, indent=2))
 "
@@ -150,7 +196,7 @@ print(json.dumps(result, indent=2))
 ### Step 3a — build the S1 cube (first attempt, no `properties_filter`)
 
 ```bash
-.venv/bin/python -c "
+"$PY" -c "
 import geopandas as gpd
 import json
 from fsd import api
@@ -162,10 +208,10 @@ result = {'step': 'build_s1_no_filter', 'expected': {'raises_or_succeeds': 'depe
 try:
     td = api.create_training_data(
         label_polygons=gdf,
-        catalog_filepath='tests/outputs/p58_p2/imagery_s1/catalog.parquet',
+        catalog_filepath='$OUT/imagery_s1/catalog.parquet',
         startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
         bands=['vv', 'vh'], id_col='fid', label_col='crop',
-        export_folderpath='tests/outputs/p58_p2/training_s1',
+        export_folderpath='$OUT/training_s1',
         collection='sentinel-1-rtc',
     )
     result.update(status='ok', pass_=True,
@@ -176,7 +222,7 @@ except Exception as exc:
                    metrics={'raised': True, 'exc_type': type(exc).__name__,
                             'message': str(exc)})
 result['pass'] = result.pop('pass_')
-with open('tests/outputs/p58_p2/_result_build_s1_no_filter.json', 'w') as f:
+with open('$OUT/_result_build_s1_no_filter.json', 'w') as f:
     json.dump(result, f, indent=2)
 print(json.dumps(result, indent=2))
 "
@@ -203,7 +249,7 @@ print(json.dumps(result, indent=2))
 Replace `<ORBIT_STATE>` with the value step 3a's error enumerated (e.g. `"ascending"`):
 
 ```bash
-.venv/bin/python -c "
+"$PY" -c "
 import geopandas as gpd
 import json
 from fsd import api
@@ -213,10 +259,10 @@ gdf = gpd.read_file('notebooks/shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.cr
 gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 td = api.create_training_data(
     label_polygons=gdf,
-    catalog_filepath='tests/outputs/p58_p2/imagery_s1/catalog.parquet',
+    catalog_filepath='$OUT/imagery_s1/catalog.parquet',
     startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
     bands=['vv', 'vh'], id_col='fid', label_col='crop',
-    export_folderpath='tests/outputs/p58_p2/training_s1',
+    export_folderpath='$OUT/training_s1',
     collection='sentinel-1-rtc',
     properties_filter={'sat:orbit_state': '<ORBIT_STATE>'},
 )
@@ -224,7 +270,7 @@ result = {'step': 'build_s1_with_filter', 'status': 'ok', 'pass': True,
           'metrics': {'n_pixels': td.n_pixels, 'n_timestamps': td.n_timestamps,
                       'bands': td.bands},
           'expected': {}, 'error': None}
-with open('tests/outputs/p58_p2/_result_build_s1_with_filter.json', 'w') as f:
+with open('$OUT/_result_build_s1_with_filter.json', 'w') as f:
     json.dump(result, f, indent=2)
 print(json.dumps(result, indent=2))
 "
@@ -237,7 +283,7 @@ print(json.dumps(result, indent=2))
 ### Step 4 — build the S2 cube for the SAME cell/window (identical verb shape)
 
 ```bash
-.venv/bin/python -c "
+"$PY" -c "
 import geopandas as gpd
 import json
 from fsd import api
@@ -247,17 +293,17 @@ gdf = gpd.read_file('notebooks/shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.cr
 gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 td = api.create_training_data(
     label_polygons=gdf,
-    catalog_filepath='tests/outputs/demo_e2e/imagery/catalog.parquet',
+    catalog_filepath='$FSD_MAIN/tests/outputs/demo_e2e/imagery/catalog.parquet',
     startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
     bands=['B04', 'B08', 'SCL'], id_col='fid', label_col='crop',
-    export_folderpath='tests/outputs/p58_p2/training_s2',
+    export_folderpath='$OUT/training_s2',
     collection='sentinel-2-l2a',
 )
 result = {'step': 'build_s2', 'status': 'ok', 'pass': True,
           'metrics': {'n_pixels': td.n_pixels, 'n_timestamps': td.n_timestamps,
                       'bands': td.bands},
           'expected': {}, 'error': None}
-with open('tests/outputs/p58_p2/_result_build_s2.json', 'w') as f:
+with open('$OUT/_result_build_s2.json', 'w') as f:
     json.dump(result, f, indent=2)
 print(json.dumps(result, indent=2))
 "
@@ -293,7 +339,7 @@ the same value you used there; otherwise leave it `None`. `build_datacube` appli
 `properties_filter` itself, so this step does not have to pre-filter the catalog.
 
 ```bash
-.venv/bin/python -c "
+"$PY" -c "
 import geopandas as gpd, os, numpy as np, rasterio
 from fsd.catalog.catalog import TileCatalog, filter_gdf
 from fsd.datacube import builder
@@ -301,11 +347,11 @@ from fsd import collections as _collections
 
 ORBIT = None  # e.g. 'ascending' -- must match step 3b if step 3b ran
 
-cat = TileCatalog('tests/outputs/p58_p2/imagery_s1/catalog.parquet').read()
+cat = TileCatalog('$OUT/imagery_s1/catalog.parquet').read()
 shapes = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
 subset = filter_gdf(cat, shapes, '2018-04-01', '2018-09-30')
 flat = builder.flatten_catalog(subset)
-out = 'tests/outputs/p58_p2/s1_eyeball'
+out = '$OUT/s1_eyeball'
 builder.build_datacube(
     catalog_subset=flat, shape_gdf=shapes,
     startdate='2018-04-01', enddate='2018-09-30', bands=['vv', 'vh'], mosaic_days=20,
@@ -323,7 +369,7 @@ print('wrote', os.path.join(out, 'vv_vh_first_timestamp.tif'))
 "
 ```
 
-- **Then open `tests/outputs/p58_p2/s1_eyeball/vv_vh_first_timestamp.tif` in QGIS.** Load band 1
+- **Then open `$OUT/s1_eyeball/vv_vh_first_timestamp.tif` in QGIS.** Load band 1
   (VV) alone first: real SAR backscatter should show field-scale texture, not a flat value or
   noise with no structure. This is not optional (`CLAUDE.md`: raster ops get eyeballed).
 - **PASS if:** the raster opens, is not entirely nodata, and shows plausible backscatter texture
@@ -331,7 +377,7 @@ print('wrote', os.path.join(out, 'vv_vh_first_timestamp.tif'))
 
 ## Success criteria (`_result.json`)
 
-Files under `fsd/tests/outputs/p58_p2/`:
+Files under `$OUT/` (i.e. the **main** checkout's `fsd/tests/outputs/p58_p2/`):
 
 ```
 _result_download_s1.json  _result_inspect_orbits.json  _result_build_s1_no_filter.json
@@ -360,7 +406,7 @@ Paste all result files, the verb-signature comparison note, and one line on what
 - If step 2 found more than one orbit state, record which one you picked in step 3b (and why —
   larger coverage, more acquisitions) in `PROGRESS.md`'s next entry, since a different reader
   re-running this later needs the same answer to reproduce the same cube path.
-- This window's S1 archive (`tests/outputs/p58_p2/imagery_s1/`) is scoped to one grid cell — it is
+- This window's S1 archive (`$OUT/imagery_s1/`) is scoped to one grid cell — it is
   a proof archive, not a replacement for a full-ROI S1 download. A full-ROI S1 pass (if ever
   wanted) is a separate, larger run-book, modelled on `runbooks/58-redownload-austria-mpc.md`.
 - THE ORDER's next item after P2 lands is spec 58 **P3** (`hls2-s30`/`hls2-l30`, Window B) — see
