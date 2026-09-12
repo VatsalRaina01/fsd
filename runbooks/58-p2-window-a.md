@@ -511,20 +511,25 @@ first, which can legitimately be empty (5 acquisitions spread over 3 calendar wi
 
 ```bash
 "$PY" -c "
-import geopandas as gpd, os, json, numpy as np, rasterio
+import geopandas as gpd, os, json, numpy as np, pandas as pd, rasterio
 from fsd.catalog.catalog import TileCatalog, filter_gdf
 from fsd.datacube import builder
 
 ORBIT = 'ascending'   # must match step 3b
+# build_datacube takes REAL datetimes, not ISO strings -- it is the low-level builder,
+# below the verbs that parse for you (workflows.task does this same conversion before
+# calling it). A string gets several steps in, past the image loads, before dying in
+# ops._dt2ts with: 'str' object has no attribute 'tzinfo'.
+START, END = pd.to_datetime('2018-06-01'), pd.to_datetime('2018-07-01')
 
 cat = TileCatalog('$OUT/imagery_s1/catalog.parquet').read()
 shapes = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
-subset = filter_gdf(cat, shapes, '2018-06-01', '2018-07-01')
+subset = filter_gdf(cat, shapes, START, END)
 flat = builder.flatten_catalog(subset)
 out = '$OUT/s1_eyeball'
 builder.build_datacube(
     catalog_subset=flat, shape_gdf=shapes,
-    startdate='2018-06-01', enddate='2018-07-01', bands=['vv', 'vh'], mosaic_days=10,
+    startdate=START, enddate=END, bands=['vv', 'vh'], mosaic_days=10,
     export_folderpath=out, if_missing_files='warn',
     properties_filter={'sat:orbit_state': ORBIT},
 )
@@ -573,6 +578,12 @@ print(json.dumps(result, indent=2))
   backscatter texture over the Austria cell.
 - **If it raises the D9 orbit error:** `ORBIT` is unset or does not match a value in the
   catalog — that is this step's own guard working, not a build failure.
+- ⚠️ **Pass real datetimes, not ISO strings.** `build_datacube` is the low-level builder and
+  does not parse dates — the verbs above it do (`workflows.task` converts with
+  `pd.to_datetime` before calling it). A string survives the partition check and the image
+  loads, then dies in `ops._dt2ts` with `'str' object has no attribute 'tzinfo'`, which names
+  neither the argument nor the date. Note `filter_gdf` *does* tolerate strings, so the two
+  calls in this step are not interchangeable.
 
 ## Success criteria (`_result.json`)
 

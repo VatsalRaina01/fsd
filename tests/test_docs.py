@@ -374,3 +374,39 @@ def test_the_p2_runbook_is_actually_covered_by_the_snippet_check():
     compiles but matches nothing is the failure mode this whole test class exists for."""
     selected = {p.name for p in _docs_with_python_snippets()}
     assert "58-p2-window-a.md" in selected, sorted(selected)
+
+
+# --- run-book `<py> -c "..."` snippets must survive the shell wrapper ----------------
+
+_DASH_C_SNIPPET_RE = re.compile(r'\S+ -c "\n(.*?)\n"\n', re.S)
+
+
+def _dash_c_snippets_with_unescaped_quotes(text: str) -> list[str]:
+    """Lines inside a `<interpreter> -c "..."` body carrying an UNESCAPED `"`.
+
+    The body is wrapped in shell double quotes, so a bare `"` ends the string early and
+    the rest of the snippet is reinterpreted as shell -- a copy-paste that fails in a way
+    that looks nothing like the Python it came from. `\\"` is correct and common (three
+    existing run-books rely on it for f-strings); only a bare one is the bug.
+    """
+    offenders = []
+    for body in _DASH_C_SNIPPET_RE.findall(text):
+        for line in body.splitlines():
+            if re.search(r'(?<!\\)"', line):
+                offenders.append(line.strip())
+    return offenders
+
+
+@pytest.mark.parametrize(
+    "path", _docs_with_python_snippets(), ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_dash_c_snippets_have_no_unescaped_double_quotes(path: Path):
+    """Caught for real while writing run-book 58-p2: a comment reading
+    `# ... with "'str' object has no attribute 'tzinfo'".` inside a `"$PY" -c "` body
+    would have terminated the shell string mid-snippet. `ast.parse` is happy with it --
+    the Python is valid -- so only this check sees it."""
+    offenders = _dash_c_snippets_with_unescaped_quotes(path.read_text())
+    assert not offenders, (
+        f"{path.name}: unescaped \" inside a `-c \"...\"` body would end the shell "
+        "string early; escape it as \\\" :\n  " + "\n  ".join(offenders)
+    )
