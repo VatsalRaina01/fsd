@@ -499,20 +499,23 @@ print(json.dumps(result, indent=2))
 ### Step 5 — QGIS eyeball of one S1 cube
 
 The array `create_training_data` lands is flattened pixels, not a raster — for a visual check,
-build ONE grid cell's cube directly and export it as a GeoTIFF:
+build ONE grid cell's cube directly and export it as a GeoTIFF.
 
-**If step 3b was needed** (the window has more than one orbit state), set `ORBIT` below to
-the same value you used there; otherwise leave it `None`. `build_datacube` applies
-`properties_filter` itself, so this step does not have to pre-filter the catalog.
+`ORBIT` is pre-filled to match step 3b. **It is required here**: this step builds from the raw
+catalog, which spans both orbit states, so leaving it unset raises the same D9 error step 3a
+did. That `build_datacube` accepts `properties_filter` at all is a P2-review fix — before it,
+this step could only be told it was wrong, never narrowed.
+
+The export picks the mosaic window with the most valid pixels rather than blindly taking the
+first, which can legitimately be empty (5 acquisitions spread over 3 calendar windows).
 
 ```bash
 "$PY" -c "
-import geopandas as gpd, os, numpy as np, rasterio
+import geopandas as gpd, os, json, numpy as np, rasterio
 from fsd.catalog.catalog import TileCatalog, filter_gdf
 from fsd.datacube import builder
-from fsd import collections as _collections
 
-ORBIT = None  # e.g. 'ascending' -- must match step 3b if step 3b ran
+ORBIT = 'ascending'   # must match step 3b
 
 cat = TileCatalog('$OUT/imagery_s1/catalog.parquet').read()
 shapes = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
@@ -523,32 +526,63 @@ builder.build_datacube(
     catalog_subset=flat, shape_gdf=shapes,
     startdate='2018-06-01', enddate='2018-07-01', bands=['vv', 'vh'], mosaic_days=10,
     export_folderpath=out, if_missing_files='warn',
-    properties_filter=({'sat:orbit_state': ORBIT} if ORBIT else None),
+    properties_filter={'sat:orbit_state': ORBIT},
 )
 dc = np.load(os.path.join(out, 'datacube.npy'))
 md = np.load(os.path.join(out, 'metadata.pickle.npy'), allow_pickle=True)[()]
+
+valid = [int(np.count_nonzero(dc[t, :, :, 0])) for t in range(dc.shape[0])]
+best = int(np.argmax(valid))
+npx = dc.shape[1] * dc.shape[2]
+vv = dc[best, :, :, 0]
+vv_valid = vv[np.nonzero(vv)]
+
 profile = dict(md['geotiff_metadata'])
 profile.update(count=2, dtype='float32')
-with rasterio.open(os.path.join(out, 'vv_vh_first_timestamp.tif'), 'w', **profile) as dst:
-    dst.write(dc[0, :, :, 0], 1)
-    dst.write(dc[0, :, :, 1], 2)
-print('wrote', os.path.join(out, 'vv_vh_first_timestamp.tif'))
+tif = os.path.join(out, 'vv_vh_t%d.tif' % best)
+with rasterio.open(tif, 'w', **profile) as dst:
+    dst.write(dc[best, :, :, 0].astype('float32'), 1)
+    dst.write(dc[best, :, :, 1].astype('float32'), 2)
+
+result = {'step': 'qgis_eyeball', 'status': 'ok', 'pass': bool(valid[best] > 0),
+          'metrics': {'cube_shape': list(dc.shape), 'bands': md['bands'],
+                      'dtype': str(dc.dtype),
+                      'timestamps': [str(t) for t in md['timestamps']],
+                      'valid_px_per_timestamp': valid, 'px_per_timestamp': npx,
+                      'exported_timestamp_index': best, 'geotiff': tif,
+                      'vv_min': float(vv_valid.min()) if vv_valid.size else None,
+                      'vv_max': float(vv_valid.max()) if vv_valid.size else None,
+                      'vv_mean': float(vv_valid.mean()) if vv_valid.size else None},
+          'expected': {'n_timestamps': 3, 'bands': ['vv', 'vh']}, 'error': None}
+with open('$OUT/_result_qgis_eyeball.json', 'w') as f:
+    json.dump(result, f, indent=2)
+print(json.dumps(result, indent=2))
 "
 ```
 
-- **Then open `$OUT/s1_eyeball/vv_vh_first_timestamp.tif` in QGIS.** Load band 1
-  (VV) alone first: real SAR backscatter should show field-scale texture, not a flat value or
-  noise with no structure. This is not optional (`CLAUDE.md`: raster ops get eyeballed).
-- **PASS if:** the raster opens, is not entirely nodata, and shows plausible backscatter texture
-  over the Austria cell.
+- **Expect:** `cube_shape` = `[3, H, W, 2]`, `dtype` `float32`, `bands` `['vv', 'vh']`, and at
+  least one timestamp with `valid_px` near `px_per_timestamp`.
+- **Sanity-check the values, not just the shape:** RTC gamma naught is **linear power, not dB**
+  (D17: `scale=1.0`, already calibrated). Land backscatter should land roughly in **0.01–1.0**,
+  i.e. about −20 to 0 dB. `vv_mean` far outside that, or negative, means something is wrong —
+  negative values in particular would mean source nodata (`-32768`) leaked in as data.
+- **Then open the exported GeoTIFF in QGIS.** Load band 1 (VV) alone first: real SAR backscatter
+  should show field-scale texture, not a flat value or structureless noise. This is not optional
+  (`CLAUDE.md`: raster ops get eyeballed).
+- **PASS if:** `pass: true`, the raster opens, is not entirely nodata, and shows plausible
+  backscatter texture over the Austria cell.
+- **If it raises the D9 orbit error:** `ORBIT` is unset or does not match a value in the
+  catalog — that is this step's own guard working, not a build failure.
 
 ## Success criteria (`_result.json`)
 
 Files under `$OUT/` (i.e. the **main** checkout's `fsd/tests/outputs/p58_p2/`):
 
 ```
-_result_download_s1.json  _result_inspect_orbits.json  _result_build_s1_no_filter.json
-_result_build_s1_with_filter.json (if step 3b ran)     _result_build_s2.json
+_result_probe_window.json              _result_download_s1.json
+_result_download_s1_other_slice.json   _result_inspect_orbits.json
+_result_build_s1_no_filter.json        _result_build_s1_with_filter.json
+_result_build_s2.json                  _result_qgis_eyeball.json
 ```
 
 **The run passes when:**
@@ -556,7 +590,9 @@ _result_build_s1_with_filter.json (if step 3b ran)     _result_build_s2.json
    step 2 predicted).
 2. Step 4's note on verb-signature identity is filled in and confirms only the expected keywords
    differ.
-3. You have looked at the QGIS raster and it shows real backscatter, not a blank/flat image.
+3. You have looked at the QGIS raster and it shows real backscatter, not a blank/flat image,
+   and `_result_qgis_eyeball.json`'s `vv_mean` sits in the physically plausible 0.01–1.0 range
+   for linear-power gamma naught.
 
 Paste all result files, the verb-signature comparison note, and one line on what QGIS showed.
 
