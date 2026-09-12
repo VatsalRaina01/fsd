@@ -1,6 +1,6 @@
 ---
 status: current
-summary: Spec 58 AC15 — download sentinel-1-rtc over Window A (s2grid=4772924, Apr-Sep 2018) with PC_SDK_SUBSCRIPTION_KEY unset, build S1 and S2 cubes for the same cell/window, and run create_training_data on each with identical verb signatures.
+summary: Spec 58 AC15 — download sentinel-1-rtc over Window A (s2grid=4772924, 1 Jun–1 Jul 2018, one orbit track) with PC_SDK_SUBSCRIPTION_KEY unset, build S1 and S2 cubes for the same cell/window, and run create_training_data on each with identical verb signatures.
 ---
 
 # Run-book 58-P2 — Window A: `sentinel-1-rtc` vs `sentinel-2-l2a`
@@ -17,7 +17,7 @@ verb-signature difference between them — and that the S1 half needs **no** MPC
 (D10, retracted 2026-09-07) and correctly enforces the orbit-state partition (D9) if the window
 turns up more than one.
 
-**Window A** (spec 58 D18): `s2grid=4772924`, 2018-04-01 → 2018-09-30 — the labelled Austria
+**Window A** (spec 58 D18): `s2grid=4772924`, **2018-06-01 → 2018-07-01** — the labelled Austria
 window, so this run-book exercises `create_training_data` with real crop labels for S1, not just
 an unlabelled probe. The cell sits **100% inside T33UWP** (single MGRS tile, single CRS — verified
 2026-09-12 against the archive: 21 granules cover it and the cell is fully within their union),
@@ -77,12 +77,13 @@ against it directly; nothing here re-downloads S2.
   **main** checkout (`tests/outputs/` is gitignored, so it is NOT in the worktree; that is
   why step 4 reaches for it by absolute path). If it does not exist, stop — that is a
   different, larger problem than this run-book.
-- ⚠️ **Disk: unknown until step 1a measures it, and potentially very large.** An earlier draft
-  of this run-book guessed "a few GB"; that was wrong. A download is a **whole-asset byte copy**,
-  so a ~6 km cell still pulls entire ~250 km Sentinel-1 scenes — the first attempt matched
-  **104 tiles = 208 whole COGs**. **Step 1a probes the byte total and your free space before
-  anything is transferred**; do not skip it, and do not simply raise `max_tiles` to get past
-  the cap.
+- ⚠️ **Disk: ~22–26 GB for this run, and the FULL window would have been 387.7 GB.** A download
+  is a **whole-asset byte copy**, so a ~6 km cell still pulls entire ~250 km Sentinel-1 scenes:
+  **~3.7 GB per scene** (VV+VH), measured 2026-09-12. An earlier draft guessed "a few GB" for the
+  whole window; it was wrong by ~100×. That is why this run is scoped to **one orbit track over
+  one month** (step 1b) plus a **6-day slice of the other orbit state** (step 1c). **Step 1a
+  re-measures before anything transfers** — do not skip it, and never simply raise `max_tiles`
+  to get past the cap.
 
 ## Steps
 
@@ -130,10 +131,22 @@ echo "FSD_MAIN=$FSD_MAIN"; echo "OUT=$OUT"
 ### Step 1a — probe the window BEFORE downloading anything
 
 ⚠️ **Why this step exists.** A download is a **whole-asset byte copy** — a ~6 km cell still
-fetches entire ~250 km Sentinel-1 scenes. Your first attempt matched **104 tiles**, i.e. 208
-whole COGs (VV+VH). At RTC's float32 scene size that is plausibly **100–200 GB**, and this
-disk has been at ~96% before (`CLAUDE.md`). **Do not just raise `max_tiles`** until this step
-says what the bytes actually are.
+fetches entire ~250 km Sentinel-1 scenes. The first attempt matched **104 tiles**, i.e. 208
+whole COGs (VV+VH). **Do not just raise `max_tiles`** until this step says what the bytes are.
+
+**Measured 2026-09-12** over `s2grid=4772924`, 2018-04-01 → 2018-09-30 — re-run it, but this is
+what it said, and it is why the later steps are scoped the way they are:
+
+| `(sat:orbit_state, sat:relative_orbit)` | scenes | GB | GB/scene | cadence |
+|---|---|---|---|---|
+| `('ascending', 146)` | 31 | 114.0 | 3.68 | 5.9 d |
+| `('ascending', 73)` | 30 | 110.6 | 3.69 | 6.1 d |
+| `('descending', 22)` | 44 | 163.1 | 3.71 | 4.1 d |
+| **total** | **105** | **387.7** | | |
+
+Free disk at the time: **44.6 GB**. Every asset carried `file:size`, so those totals are exact,
+not estimates. **Even the smallest single track is 2.5× the free space**, which is what forces
+rule 3 below — the window shrinks, it is not a matter of picking a better orbit.
 
 ```bash
 "$PY" -c "
@@ -195,8 +208,15 @@ print(json.dumps(result, indent=2))
 
 ### Step 1b — download the chosen partition
 
-Fill in from step 1a. `REL_ORBIT = None` unless rule 2 applied; `START`/`END` unchanged unless
-rule 3 applied. `MAX_TILES` should be the chosen group's `n` plus a little slack.
+**Pre-filled from the 2026-09-12 probe** — all three narrowing rules had to be applied, because
+the full window was 387.7 GB against 44.6 GB free. Re-derive these from *your* step 1a output if
+it differs. `MAX_TILES` is the expected scene count plus slack, deliberately left tight so a
+wrong window trips the cap instead of the disk.
+
+> `REL_ORBIT = 146` is an **integer**, as `sat:relative_orbit` is in the STAC `sat` extension.
+> That works because the P2 review fixed `properties_filter` to accept non-string scalars — it
+> previously raised `TypeError` on the int and silently matched **zero rows** on the string
+> `"146"`. This step is the first real use of that fix.
 
 ```bash
 "$PY" -c "
@@ -205,10 +225,10 @@ from fsd import api
 
 assert os.environ.get('PC_SDK_SUBSCRIPTION_KEY') is None, 'unset PC_SDK_SUBSCRIPTION_KEY first'
 
-ORBIT     = 'ascending'      # <- from step 1a
-REL_ORBIT = None             # <- e.g. 146, or None
-START, END = '2018-04-01', '2018-09-30'
-MAX_TILES = 60
+ORBIT     = 'ascending'      # measured 2026-09-12, step 1a
+REL_ORBIT = 146              # pin the track: 31 scenes over the full window, 3.68 GB each
+START, END = '2018-06-01', '2018-07-01'   # ~5 scenes ~= 18.4 GB of 44.6 GB free
+MAX_TILES = 8
 
 pf = {'sat:orbit_state': ORBIT}
 if REL_ORBIT is not None:
@@ -256,8 +276,8 @@ a handful of scenes, not a second full archive — into the **same** folder and 
 import json, os
 from fsd import api
 
-OTHER = 'descending'          # <- the orbit state NOT chosen in step 1b
-SLICE_START, SLICE_END = '2018-06-01', '2018-06-13'   # ~one 12-day repeat cycle
+OTHER = 'descending'          # the orbit state NOT chosen in step 1b
+SLICE_START, SLICE_END = '2018-06-01', '2018-06-07'   # 6 d ~= 1-2 scenes ~= 3.7-7.4 GB
 
 catalog_fp = api.download(
     roi='notebooks/shapefiles/s2grid=4772924.geojson',
@@ -280,7 +300,8 @@ print(json.dumps(result, indent=2))
 
 - **Skip this step entirely if step 1a found only ONE orbit state** — then step 3a is expected
   to succeed, and AC11's raise is covered by the unit tests alone. Say so in your write-up.
-- **PASS if:** `pass: true`. A few GB at most.
+- **PASS if:** `pass: true`. Expect **1-2 scenes, ~3.7-7.4 GB** — enough to make the
+  catalog span two orbit states, which is all AC11 needs.
 
 ### Step 2 — verify what actually landed in the catalog
 
@@ -331,7 +352,7 @@ try:
     td = api.create_training_data(
         label_polygons=gdf,
         catalog_filepath='$OUT/imagery_s1/catalog.parquet',
-        startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
+        startdate='2018-06-01', enddate='2018-07-01', mosaic_days=10,
         bands=['vv', 'vh'], id_col='fid', label_col='crop',
         export_folderpath='$OUT/training_s1',
         collection='sentinel-1-rtc',
@@ -382,7 +403,7 @@ gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cel
 td = api.create_training_data(
     label_polygons=gdf,
     catalog_filepath='$OUT/imagery_s1/catalog.parquet',
-    startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
+    startdate='2018-06-01', enddate='2018-07-01', mosaic_days=10,
     bands=['vv', 'vh'], id_col='fid', label_col='crop',
     export_folderpath='$OUT/training_s1',
     collection='sentinel-1-rtc',
@@ -416,7 +437,7 @@ gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cel
 td = api.create_training_data(
     label_polygons=gdf,
     catalog_filepath='$FSD_MAIN/tests/outputs/demo_e2e/imagery/catalog.parquet',
-    startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
+    startdate='2018-06-01', enddate='2018-07-01', mosaic_days=10,
     bands=['B04', 'B08', 'SCL'], id_col='fid', label_col='crop',
     export_folderpath='$OUT/training_s2',
     collection='sentinel-2-l2a',
@@ -437,9 +458,11 @@ print(json.dumps(result, indent=2))
   differ — every other keyword (`label_polygons`, `startdate`, `enddate`, `mosaic_days`, `id_col`,
   `label_col`) is byte-identical. **That identity of shape is AC15's actual claim** — write down
   whether it held.
-- **`td.n_timestamps` should match between the S1 and S2 runs** (same `startdate`/`enddate`/
-  `mosaic_days` → the same calendar-interval mosaic axis, ADR 0010) even though the two cubes
-  come from unrelated acquisitions.
+- **`td.n_timestamps` should match between the S1 and S2 runs, and should be 3** — the window is
+  2018-06-01 → 2018-07-01 with `mosaic_days=10`, so `T = ceil(30/10) = 3` for both, by
+  construction (same `startdate`/`enddate`/`mosaic_days` → the same calendar-interval mosaic
+  axis, ADR 0010), even though the two cubes come from unrelated acquisitions. A mismatch here
+  is a real finding, not a data quirk.
 - **`td.bands` should be `['B04', 'B08']` here — SCL is consumed, not returned.** Nothing in this
   call applies the cloud mask; the verb has no mask parameter at all (D3). `build_datacube` reads
   `mask_spec` off the `sentinel-2-l2a` declaration and, because `SCL` is among the requested
@@ -471,12 +494,12 @@ ORBIT = None  # e.g. 'ascending' -- must match step 3b if step 3b ran
 
 cat = TileCatalog('$OUT/imagery_s1/catalog.parquet').read()
 shapes = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
-subset = filter_gdf(cat, shapes, '2018-04-01', '2018-09-30')
+subset = filter_gdf(cat, shapes, '2018-06-01', '2018-07-01')
 flat = builder.flatten_catalog(subset)
 out = '$OUT/s1_eyeball'
 builder.build_datacube(
     catalog_subset=flat, shape_gdf=shapes,
-    startdate='2018-04-01', enddate='2018-09-30', bands=['vv', 'vh'], mosaic_days=20,
+    startdate='2018-06-01', enddate='2018-07-01', bands=['vv', 'vh'], mosaic_days=10,
     export_folderpath=out, if_missing_files='warn',
     properties_filter=({'sat:orbit_state': ORBIT} if ORBIT else None),
 )
