@@ -77,8 +77,12 @@ against it directly; nothing here re-downloads S2.
   **main** checkout (`tests/outputs/` is gitignored, so it is NOT in the worktree; that is
   why step 4 reaches for it by absolute path). If it does not exist, stop — that is a
   different, larger problem than this run-book.
-- A few GB of disk and network for step 1 (one grid cell, ~6 months of S1 acquisitions — far
-  smaller than a full-ROI S2 download).
+- ⚠️ **Disk: unknown until step 1a measures it, and potentially very large.** An earlier draft
+  of this run-book guessed "a few GB"; that was wrong. A download is a **whole-asset byte copy**,
+  so a ~6 km cell still pulls entire ~250 km Sentinel-1 scenes — the first attempt matched
+  **104 tiles = 208 whole COGs**. **Step 1a probes the byte total and your free space before
+  anything is transferred**; do not skip it, and do not simply raise `max_tiles` to get past
+  the cap.
 
 ## Steps
 
@@ -123,7 +127,76 @@ echo "FSD_MAIN=$FSD_MAIN"; echo "OUT=$OUT"
   is deleted when P2 merges, and the downloaded S1 archive should survive that.
 
 
-### Step 1 — download `sentinel-1-rtc` over Window A, anonymously
+### Step 1a — probe the window BEFORE downloading anything
+
+⚠️ **Why this step exists.** A download is a **whole-asset byte copy** — a ~6 km cell still
+fetches entire ~250 km Sentinel-1 scenes. Your first attempt matched **104 tiles**, i.e. 208
+whole COGs (VV+VH). At RTC's float32 scene size that is plausibly **100–200 GB**, and this
+disk has been at ~96% before (`CLAUDE.md`). **Do not just raise `max_tiles`** until this step
+says what the bytes actually are.
+
+```bash
+"$PY" -c "
+import json, shutil
+import geopandas as gpd
+from fsd.sources import mpc
+
+roi = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
+items = mpc._search_items_unsigned(
+    roi, '2018-04-01', '2018-09-30', collection='sentinel-1-rtc',
+)
+groups, sized, unsized, total_bytes = {}, 0, 0, 0
+for it in items:
+    key = (it.properties.get('sat:orbit_state'), it.properties.get('sat:relative_orbit'))
+    g = groups.setdefault(str(key), {'n': 0, 'bytes': 0})
+    g['n'] += 1
+    for b in ('vv', 'vh'):
+        asset = it.assets.get(b)
+        size = (asset.extra_fields or {}).get('file:size') if asset is not None else None
+        if size:
+            sized += 1; total_bytes += size; g['bytes'] += size
+        else:
+            unsized += 1
+free = shutil.disk_usage('.').free
+result = {'step': 'probe_window', 'status': 'ok', 'pass': True,
+          'metrics': {'n_items': len(items),
+                      'by_orbit_state_relorbit': groups,
+                      'assets_with_file_size': sized, 'assets_without': unsized,
+                      'total_GB': round(total_bytes / 1e9, 1),
+                      'free_disk_GB': round(free / 1e9, 1)},
+          'expected': {}, 'error': None}
+import os; os.makedirs('$OUT', exist_ok=True)
+with open('$OUT/_result_probe_window.json', 'w') as f:
+    json.dump(result, f, indent=2)
+print(json.dumps(result, indent=2))
+"
+```
+
+- **Expect:** `n_items` around 104, split across one or more
+  `(sat:orbit_state, sat:relative_orbit)` groups, each with its own byte total.
+- **PASS if:** it prints without error. This step is a **decision input, not a gate**.
+- **If `assets_without` is non-zero**, MPC did not publish `file:size` for those assets and
+  `total_GB` is an undercount — treat it as a floor, not an estimate.
+- **Record:** the group table and `total_GB` vs `free_disk_GB`. Step 1b is chosen from it.
+
+#### Choosing what to download (the rule, in order)
+
+1. **Pick ONE `sat:orbit_state`** — the build can only ever use one (D9 enforcement), so the
+   other's bytes are pure waste. Prefer the group with the most acquisitions.
+2. **If that is still too big, also pin `sat:relative_orbit`** to the busiest track within the
+   chosen orbit state. Fewer acquisitions, but they are the ones that actually co-register.
+3. **If it is STILL too big, shorten the window** — e.g. `2018-06-01 → 2018-07-31`. The 2018
+   EuroCrops labels are season-level (`GEOM_DATE_` = 2018-07-31), so a mid-season window keeps
+   them valid. **Use the same window for step 4's S2 build** so the two stay comparable.
+4. Keep **at least ~5 acquisitions** so `mosaic_days=20` has something to composite.
+
+**Leave yourself headroom:** do not start a download whose `total_GB` is within ~20 GB of
+`free_disk_GB`.
+
+### Step 1b — download the chosen partition
+
+Fill in from step 1a. `REL_ORBIT = None` unless rule 2 applied; `START`/`END` unchanged unless
+rule 3 applied. `MAX_TILES` should be the chosen group's `n` plus a little slack.
 
 ```bash
 "$PY" -c "
@@ -132,17 +205,28 @@ from fsd import api
 
 assert os.environ.get('PC_SDK_SUBSCRIPTION_KEY') is None, 'unset PC_SDK_SUBSCRIPTION_KEY first'
 
-dst = '$OUT/imagery_s1'
+ORBIT     = 'ascending'      # <- from step 1a
+REL_ORBIT = None             # <- e.g. 146, or None
+START, END = '2018-04-01', '2018-09-30'
+MAX_TILES = 60
+
+pf = {'sat:orbit_state': ORBIT}
+if REL_ORBIT is not None:
+    pf['sat:relative_orbit'] = REL_ORBIT
+
 catalog_fp = api.download(
     roi='notebooks/shapefiles/s2grid=4772924.geojson',
-    startdate='2018-04-01', enddate='2018-09-30',
+    startdate=START, enddate=END,
     bands=['vv', 'vh'],
-    dst_folderpath=dst,
+    dst_folderpath='$OUT/imagery_s1',
     source='mpc', collection='sentinel-1-rtc',
-    max_tiles=50, progress=True,
+    properties_filter=pf,
+    max_tiles=MAX_TILES, progress=True,
 )
 result = {'step': 'download_s1', 'status': 'ok', 'pass': True,
-          'metrics': {'catalog_filepath': catalog_fp}, 'expected': {}, 'error': None}
+          'metrics': {'catalog_filepath': catalog_fp, 'properties_filter': pf,
+                      'window': [START, END]},
+          'expected': {}, 'error': None}
 os.makedirs('$OUT', exist_ok=True)
 with open('$OUT/_result_download_s1.json', 'w') as f:
     json.dump(result, f, indent=2)
@@ -150,16 +234,55 @@ print(json.dumps(result, indent=2))
 "
 ```
 
-- **Expect:** anonymous discovery + download (no key prompt, no 401/403/404), a handful of
-  granules (a single ~5 km cell over 6 months, not a whole-ROI archive), `pass: True`.
+- **Expect:** anonymous discovery + download (no key prompt, no 401/403/404), only the chosen
+  partition's scenes, `pass: True`.
 - **PASS if:** `_result_download_s1.json` has `pass: true` and
   `$OUT/imagery_s1/catalog.parquet` exists.
 - **If it fails with a 401/403/404 or a key prompt:** that contradicts D10 (retracted) —
   paste the exact error; do not set the key to work around it, that would hide the finding.
+- **If `max_tiles` is still exceeded:** the error now reports how many tiles survived the
+  filter and that it already narrowed — go back to rule 2 or 3, do not just raise the cap.
 - **If it fails / hangs:** Ctrl-C is safe; `mpc.download` skips files already on disk, so
   re-running resumes.
 
-### Step 2 — inspect the orbit states this window actually has
+### Step 1c — add a small slice of the OTHER orbit state (only if step 1a found two)
+
+AC11 needs a catalog that genuinely spans two orbit states, or step 3a has nothing to raise
+about. This adds **one repeat cycle** (~12 days) of the orbit state you did *not* choose —
+a handful of scenes, not a second full archive — into the **same** folder and catalog.
+
+```bash
+"$PY" -c "
+import json, os
+from fsd import api
+
+OTHER = 'descending'          # <- the orbit state NOT chosen in step 1b
+SLICE_START, SLICE_END = '2018-06-01', '2018-06-13'   # ~one 12-day repeat cycle
+
+catalog_fp = api.download(
+    roi='notebooks/shapefiles/s2grid=4772924.geojson',
+    startdate=SLICE_START, enddate=SLICE_END,
+    bands=['vv', 'vh'],
+    dst_folderpath='$OUT/imagery_s1',
+    source='mpc', collection='sentinel-1-rtc',
+    properties_filter={'sat:orbit_state': OTHER},
+    max_tiles=10, progress=True,
+)
+result = {'step': 'download_s1_other_orbit_slice', 'status': 'ok', 'pass': True,
+          'metrics': {'catalog_filepath': catalog_fp, 'orbit_state': OTHER,
+                      'window': [SLICE_START, SLICE_END]},
+          'expected': {}, 'error': None}
+with open('$OUT/_result_download_s1_other_slice.json', 'w') as f:
+    json.dump(result, f, indent=2)
+print(json.dumps(result, indent=2))
+"
+```
+
+- **Skip this step entirely if step 1a found only ONE orbit state** — then step 3a is expected
+  to succeed, and AC11's raise is covered by the unit tests alone. Say so in your write-up.
+- **PASS if:** `pass: true`. A few GB at most.
+
+### Step 2 — verify what actually landed in the catalog
 
 ```bash
 "$PY" -c "
@@ -182,12 +305,11 @@ print(json.dumps(result, indent=2))
 "
 ```
 
-- **Expect:** one or more `(orbit_state, relative_orbit)` keys with counts. spec 58 D17's own
-  probe (2026-09-07) saw `sat:orbit_state: 'ascending'`, `sat:relative_orbit: 146` — but that
-  probe was a single item over the *`476da24`* bbox (the cell D18 named; see the Purpose note).
-  **Make no prediction here**: a different cell over 6 months may well turn up both orbit states,
-  which is the more interesting case for AC11. Whatever this step reports is the ground truth
-  step 3 is checked against.
+- **Expect:** exactly the partition(s) step 1b/1c downloaded — nothing else. This is the
+  check that `properties_filter` did what it claimed at DOWNLOAD time, not just at build time.
+- **PASS if:** the `(orbit_state, relative_orbit)` keys here are a subset of what step 1a
+  reported, and contain the orbit state chosen in step 1b. If step 1c ran, **two** orbit states
+  must appear — that is what makes step 3a's AC11 raise a real result rather than a hypothetical.
 - **PASS if:** `n_rows > 0`. **This step's OUTPUT decides step 3's `properties_filter`** — it is
   not a pass/fail gate on its own.
 - **Record** which `sat:orbit_state` value(s) appear, and how many `relative_orbit` values share

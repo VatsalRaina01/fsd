@@ -27,6 +27,7 @@ import dataclasses
 import datetime
 import json
 import os
+from collections.abc import Mapping, Sequence
 from typing import Callable
 
 import geopandas as gpd
@@ -35,6 +36,7 @@ import shapely
 
 from fsd import collections as _collections
 from fsd import config
+from fsd.catalog import catalog as catalog_module
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.raster.cog import stamp_or_reencode
 from fsd.sources._s2_radiometry import offset_for_item
@@ -479,6 +481,7 @@ def download(
     max_concurrent: int | None = None,
     should_stop: Callable[[], bool] | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> DownloadResult:
     """Discover matching MPC `collection` tiles and download the requested band files
     to `root_folderpath`, local or remote/blob. No credentials required: MPC is anonymous.
@@ -489,6 +492,14 @@ def download(
 
     `should_stop` (optional) is checked in the submit loop, with the same
     halt-new-submissions-only semantics as `cdse.download`.
+
+    `properties_filter` (spec 58 D9) narrows the discovered tiles by STAC property —
+    e.g. `{"sat:orbit_state": "descending"}` — **before** the `max_tiles` cap, so the cap
+    measures what will actually be transferred. This matters because a transfer is a
+    whole-asset byte copy: a partitioned collection like `sentinel-1-rtc` returns every
+    orbit's scenes over an ROI, and a build can only ever use one of them (D9's partition
+    enforcement), so downloading both is pure waste. Same semantics as everywhere else —
+    a key no discovered tile carries raises, naming the keys they do carry.
     """
     import concurrent.futures
     import time
@@ -513,10 +524,22 @@ def download(
         roi_gdf, max_cloudcover,
     )
 
+    # Applied BEFORE the cap: `max_tiles` is a guardrail on bytes about to be moved, so it
+    # must count the tiles this run will actually transfer, not the ones discovery saw.
+    n_discovered = len(tiles)
+    tiles = catalog_module.filter_by_properties(tiles, properties_filter)
+
     if len(tiles) > max_tiles:
+        narrowed = ""
+        if properties_filter:
+            narrowed = (f" (already narrowed from {n_discovered} by "
+                        f"properties_filter={dict(properties_filter)!r})")
         raise ValueError(
-            f"{len(tiles)} matched tiles exceed max_tiles={max_tiles}. Narrow "
-            "the query or raise max_tiles."
+            f"{len(tiles)} matched tiles exceed max_tiles={max_tiles}{narrowed}. Narrow "
+            "the query or raise max_tiles. Note each tile transfers its WHOLE asset "
+            "file(s), not just the ROI window -- for a partitioned collection "
+            "(e.g. sentinel-1-rtc) pass properties_filter to drop the orbits the build "
+            "cannot use anyway."
         )
 
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}

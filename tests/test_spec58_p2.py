@@ -468,3 +468,100 @@ def test_build_datacube_applies_properties_filter_itself(tmp_path):
     )
     dc = fs.load_npy(str(tmp_path / "b" / "datacube.npy"))
     assert dc[0, 0, 0, 0] == pytest.approx(0.3)
+
+
+# --- download-time properties_filter (spec 58 D9; the P2 scope cut, reversed after the
+# --- first real Window A run: 104 RTC granules for ONE ~6 km cell, whole scenes each) ---
+
+def _fake_s1_item(item_id, orbit, rel_orbit=146):
+    class _Asset:
+        def __init__(self, href):
+            self.href = href
+
+    class _Item:
+        id = item_id
+        datetime = pd.Timestamp("2018-06-01", tz="UTC")
+        properties = {"sat:orbit_state": orbit, "sat:relative_orbit": rel_orbit}
+        geometry = shapely.geometry.mapping(shapely.geometry.box(0, 0, 1, 1))
+        assets = {"vv": _Asset(f"https://example/{item_id}_vv.tif"),
+                  "vh": _Asset(f"https://example/{item_id}_vh.tif")}
+
+        def get_self_href(self):
+            return f"https://example/{item_id}"
+
+    return _Item()
+
+
+def _download_with(monkeypatch, tmp_path, items, **kwargs):
+    """Drive `mpc.download` with discovery stubbed out and transfers replaced by a
+    recorder -- so the cap/filter logic is exercised with no network and no bytes."""
+    moved = []
+    monkeypatch.setattr(mpc, "_search_items_unsigned", lambda *a, **k: items)
+    monkeypatch.setattr(mpc, "_import_pc_sign", lambda: (lambda u: u))
+    monkeypatch.setattr(
+        mpc, "_transfer_and_stamp_one",
+        lambda src, dst, **kw: (moved.append(src), (True, "ok"))[1],
+    )
+    roi = tmp_path / "roi.geojson"
+    gpd.GeoDataFrame({"geometry": [shapely.geometry.box(0, 0, 1, 1)]},
+                     crs="EPSG:4326").to_file(roi, driver="GeoJSON")
+    cat = catalog.TileCatalog(str(tmp_path / "catalog.parquet"))
+    mpc.download(
+        roi=str(roi), startdate=datetime.datetime(2018, 4, 1),
+        enddate=datetime.datetime(2018, 9, 30), bands=["vv", "vh"],
+        root_folderpath=str(tmp_path / "imagery"), catalog=cat,
+        collection="sentinel-1-rtc", **kwargs,
+    )
+    return moved
+
+
+def test_download_properties_filter_drops_the_unused_orbit_before_transfer(monkeypatch, tmp_path):
+    """The concrete need that justified adding this (Window A, 2026-09-12): a build can use
+    only ONE orbit state (D9 enforcement), and a transfer is a whole-asset byte copy, so
+    fetching the other orbit is pure waste."""
+    items = [_fake_s1_item("asc1", "ascending"), _fake_s1_item("asc2", "ascending"),
+             _fake_s1_item("desc1", "descending")]
+    moved = _download_with(monkeypatch, tmp_path, items, max_tiles=10,
+                           properties_filter={"sat:orbit_state": "descending"})
+    assert all("desc1" in src for src in moved), moved
+    assert len(moved) == 2  # vv + vh of the one descending scene
+
+
+def test_download_properties_filter_applies_before_the_max_tiles_cap(monkeypatch, tmp_path):
+    """`max_tiles` guards BYTES ABOUT TO MOVE, so it must count post-filter tiles. Three
+    discovered, cap of 2: unfiltered it raises; narrowed to one orbit it proceeds."""
+    items = [_fake_s1_item("asc1", "ascending"), _fake_s1_item("asc2", "ascending"),
+             _fake_s1_item("desc1", "descending")]
+    with pytest.raises(ValueError, match="exceed max_tiles"):
+        _download_with(monkeypatch, tmp_path, items, max_tiles=2)
+
+    moved = _download_with(monkeypatch, tmp_path, items, max_tiles=2,
+                           properties_filter={"sat:orbit_state": "descending"})
+    assert len(moved) == 2
+
+
+def test_download_max_tiles_message_says_the_filter_already_narrowed(monkeypatch, tmp_path):
+    """Still over the cap after filtering -- the message must not send the user back to
+    add a filter they already have."""
+    items = [_fake_s1_item(f"asc{i}", "ascending") for i in range(4)]
+    with pytest.raises(ValueError, match="already narrowed from 4"):
+        _download_with(monkeypatch, tmp_path, items, max_tiles=2,
+                       properties_filter={"sat:orbit_state": "ascending"})
+
+
+def test_download_properties_filter_unknown_key_raises_naming_carried_keys(monkeypatch, tmp_path):
+    with pytest.raises(ValueError, match="sat:orbit_state"):
+        _download_with(monkeypatch, tmp_path, [_fake_s1_item("asc1", "ascending")],
+                       max_tiles=10, properties_filter={"no:such:key": "x"})
+
+
+def test_api_download_rejects_properties_filter_for_cdse():
+    """Silently ignoring it would only show up on the disk bill."""
+    with pytest.raises(api.PreflightError, match="not implemented for source='cdse'"):
+        api.download(
+            roi=None, startdate=datetime.datetime(2018, 4, 1),
+            enddate=datetime.datetime(2018, 9, 30), bands=["B04"],
+            dst_folderpath="/tmp/unused-cdse-pf", source="cdse",
+            collection=config.SATELLITE_S2L2A, max_tiles=1,
+            properties_filter={"sat:orbit_state": "ascending"},
+        )

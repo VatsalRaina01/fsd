@@ -47,6 +47,24 @@ review found **two real bugs + one spec deviation**, all fixed on `worktree-spec
    it is **47.7 km outside `AT_ROI`** and **50.2 km from the nearest labelled field**. It remains
    the right cell for single-tile *imagery* tests that need no labels.
 
+5. **`download()` now takes `properties_filter` — the P2 scope cut, reversed by the first real
+   run** (2026-09-12). Window A step 1 matched **104 RTC tiles for ONE ~6 km cell**, and a
+   transfer is a **whole-asset byte copy** (`_transfer_and_stamp_one`), so that is 208 entire
+   ~250 km scenes — plausibly 100–200 GB on a disk that has been at 96%. The build can only ever
+   use ONE orbit state (D9 enforcement), so the rest is pure waste. The filter is applied
+   **before the `max_tiles` cap** (the cap guards bytes about to move, so it must count
+   post-filter tiles) and the cap's message now says whether a filter already narrowed. `cdse`
+   does not implement it and **says so at preflight** rather than ignoring it. This restores
+   D9's literal "every verb that carries `collection=` gains one parameter" — the P2 cut had
+   leaned on D9's closing sentence, and the run showed the cut was expensive.
+6. ⚠️ **Regression I introduced and then caught, worth remembering:** rewriting the run-book to
+   invoke the venv as `"$PY" -c "` silently dropped the whole file out of
+   `tests/test_docs.py::test_doc_snippets_use_real_fsd_attributes`, whose selector keyed on the
+   literal `python -c "`. No failure — the parametrized case just **vanished**, visible only as a
+   test count one lower than expected. That test's own comment records the same trap one spelling
+   earlier ("made this test vacuous on its first write"). Selector now matches any `<word> -c "`,
+   with two tests pinning it, one naming `58-p2-window-a.md` explicitly.
+
 **Two findings reported, NOT fixed — they need the user's call, see the review hand-off:**
 (a) **D17's declared `nodata=-32768` never reaches a cube.** The build takes nodata from the
 catalog COLUMN (`declaration.nodata` is only a fallback, per its own docstring) and

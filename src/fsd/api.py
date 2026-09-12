@@ -334,6 +334,7 @@ def download(
     *,
     source: str = "mpc",
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     max_tiles: int,
     max_cloudcover: float | None = None,
     cog: bool = True,
@@ -361,6 +362,13 @@ def download(
     58 D6, a discovery-only capability, e.g. every optical collection but not Sentinel-1) --
     passing it against a collection with no cloud-cover concept raises rather than
     silently being a no-op filter.
+
+    `properties_filter` (spec 58 D9) narrows discovered tiles by STAC property, e.g.
+    `{"sat:orbit_state": "descending"}`, **before** `max_tiles` is checked. A download is a
+    whole-asset byte copy -- a ~5 km ROI still fetches entire ~250 km Sentinel-1 scenes --
+    and a build can only ever use ONE value of a partitioned property (D9's enforcement),
+    so fetching the others is pure waste. `source='cdse'` does not implement it and says so
+    at preflight rather than ignoring it.
 
     `max_concurrent` is how many band files transfer at once (`sources.mpc.download`'s
     `max_concurrent`, `sources.cdse.download`'s `max_concurrent_s3`). `None` keeps each
@@ -402,6 +410,13 @@ def download(
         errs.append("creds (CdseCredentials) required for source='cdse' with runner='local'.")
     if max_cloudcover is not None and not errs:
         errs += _check_cloudcover_capability(collection, max_cloudcover)
+    if properties_filter and source != "mpc":
+        # Loud, not silently ignored: a caller who narrowed to one orbit and still got
+        # every orbit's bytes would only find out from the disk bill (spec 58 D9).
+        errs.append(
+            f"properties_filter is not implemented for source={source!r} (only 'mpc'); "
+            "drop it, or use source='mpc'."
+        )
     _raise_preflight(errs)
 
     _configure_storage(storage)
@@ -426,6 +441,7 @@ def download(
             root_folderpath=dst_folderpath, catalog=catalog,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, progress=progress,
             collection=collection, max_concurrent=max_concurrent,
+            properties_filter=properties_filter,
         )
     else:
         _cdse_download(
