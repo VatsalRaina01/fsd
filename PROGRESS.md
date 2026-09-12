@@ -25,6 +25,20 @@ review found **two real bugs + one spec deviation**, all fixed on `worktree-spec
    builder QGIS step, whose only recourse to a mixed-orbit raise had been to pre-filter by hand.
 3. Hardened `filter_by_properties` against a non-`str` `properties` cell (NaN → `json.loads`
    `TypeError`).
+4. ⚠️ **The AC15 run-book could not have run at all — and spec 58 D18 is wrong** (found by the
+   user, 2026-09-12, not by the review). D18's Window A pairs `s2grid=476da24` with "the EuroCrops
+   labels", but **`austria_eurocrops_sampled_ethiopia_translated.geojson` is in ETHIOPIA**
+   (36.1–36.9 °E, 11.4–12.0 °N) despite the `austria_` prefix — it is the Austria fields
+   *translated* there — while `476da24` is in Austria (16.03–16.12 °E, 48.1 °N). Zero overlap, so
+   steps 3–5 would have produced no training data. **`AT_2018_TRAIN.geojson` does not rescue it
+   either: 0 of its 900 fields fall in `476da24`**, which lies outside `AT_ROI` entirely.
+   **Fix:** Window A moves to **`s2grid=4772924`** — written to `shapefiles/` (workspace root,
+   **outside git**) from `roi_to_s2_grids(AT_ROI, 5km)`; 100% inside T33UWP, fully covered by 21
+   archive granules, **43 labelled `AT_2018_TRAIN` fields inside** (`id_col="fid"`,
+   `label_col="crop"`, the pair `demos/e2e_austria.py` uses). The run-book now reprojects and
+   clips the labels itself. **D18 needs amending to match — not yet signed off.**
+   Also corrected in the run-book: `../shapefiles/` resolves from the main checkout only, never
+   from a `.claude/worktrees/` copy (it had claimed both).
 
 **Two findings reported, NOT fixed — they need the user's call, see the review hand-off:**
 (a) **D17's declared `nodata=-32768` never reaches a cube.** The build takes nodata from the

@@ -1,6 +1,6 @@
 ---
 status: current
-summary: Spec 58 AC15 — download sentinel-1-rtc over Window A (s2grid=476da24, Apr-Sep 2018) with PC_SDK_SUBSCRIPTION_KEY unset, build S1 and S2 cubes for the same cell/window, and run create_training_data on each with identical verb signatures.
+summary: Spec 58 AC15 — download sentinel-1-rtc over Window A (s2grid=4772924, Apr-Sep 2018) with PC_SDK_SUBSCRIPTION_KEY unset, build S1 and S2 cubes for the same cell/window, and run create_training_data on each with identical verb signatures.
 ---
 
 # Run-book 58-P2 — Window A: `sentinel-1-rtc` vs `sentinel-2-l2a`
@@ -17,9 +17,24 @@ verb-signature difference between them — and that the S1 half needs **no** MPC
 (D10, retracted 2026-09-07) and correctly enforces the orbit-state partition (D9) if the window
 turns up more than one.
 
-**Window A** (spec 58 D18): `s2grid=476da24` (single-tile, 100% inside T33UWP, verified
-2026-07-17), 2018-04-01 → 2018-09-30 — the labelled Austria window, so this run-book also
-exercises `create_training_data` with real EuroCrops labels for S1, not just an unlabelled probe.
+**Window A** (spec 58 D18): `s2grid=4772924`, 2018-04-01 → 2018-09-30 — the labelled Austria
+window, so this run-book exercises `create_training_data` with real crop labels for S1, not just
+an unlabelled probe. The cell sits **100% inside T33UWP** (single MGRS tile, single CRS — verified
+2026-09-12 against the archive: 21 granules cover it and the cell is fully within their union),
+and **43 labelled `AT_2018_TRAIN` fields fall inside it** (7 crop classes, mostly
+`grain_maize_corn_popcorn` and `hemp_cannabis`).
+
+> ⚠️ **This cell is NOT the one spec 58 D18 names, and the change is deliberate** (review,
+> 2026-09-12 — pending sign-off to amend D18). D18 pairs `s2grid=476da24` with "the EuroCrops
+> labels", but those two do not intersect:
+> `austria_eurocrops_sampled_ethiopia_translated.geojson` is, despite the `austria_` prefix,
+> **translated to Ethiopia** (36.1–36.9 °E, 11.4–12.0 °N), while `s2grid=476da24` is in Austria
+> (16.03–16.12 °E, 48.1 °N) — and **0 of the 900** Austria-located `AT_2018_TRAIN` fields fall in
+> `476da24` either (it lies outside `AT_ROI`). So D18's Window A as written has imagery but **no
+> labels**, and could not prove the "labelled" half of AC15. `s2grid=4772924` keeps every property
+> D18 actually wanted — one cell, one MGRS tile, inside the existing S2 archive, Apr–Sep 2018 —
+> and adds the labels. The Ethiopia file cannot be used at all: its imagery
+> (`satellite_benchmark/`) was deleted (see `CLAUDE.md`).
 
 **The S2 half is already on disk** — the Austria archive at `tests/outputs/demo_e2e/imagery/`
 (184 granules, `B04,B08,SCL`, MPC, re-ingested 2026-09-07; see `PROGRESS.md`). Step 5 builds
@@ -39,10 +54,13 @@ against it directly; nothing here re-downloads S2.
   echo "PC_SDK_SUBSCRIPTION_KEY is: ${PC_SDK_SUBSCRIPTION_KEY:-<unset>}"
   unset PC_SDK_SUBSCRIPTION_KEY
   ```
-- `../shapefiles/s2grid=476da24.geojson` exists (workspace-root `shapefiles/`, sibling of the
-  `fsd` checkout — works from the main checkout or a `.claude/worktrees/` copy).
-- `../shapefiles/austria_eurocrops_sampled_ethiopia_translated.geojson` exists (the EuroCrops
-  labels; `id_col="fid"`, `label_col="EC_hcat_n"`, per `CLAUDE.md`).
+- `../shapefiles/s2grid=4772924.geojson` exists (written 2026-09-12 by the review session, from
+  `fsd.grid.roi_to_s2_grids(AT_ROI, grid_size_km=5)`). ⚠️ **`../shapefiles/` resolves only from
+  the main `fsd/` checkout**, whose parent is the workspace root — NOT from a
+  `.claude/worktrees/` copy, which is three levels deeper. Run every step from the main checkout.
+- `../shapefiles/AT_2018_TRAIN.geojson` exists (900 Austria 2018 crop fields, EPSG:31287;
+  `id_col="fid"`, `label_col="crop"` — the same pair `demos/e2e_austria.py` uses). The steps
+  below reproject it and clip to the cell themselves.
 - `tests/outputs/demo_e2e/imagery/catalog.parquet` exists (the S2 archive). If it does not,
   stop — that is a different, larger problem than this run-book.
 - A few GB of disk and network for step 1 (one grid cell, ~6 months of S1 acquisitions — far
@@ -63,7 +81,7 @@ assert os.environ.get('PC_SDK_SUBSCRIPTION_KEY') is None, 'unset PC_SDK_SUBSCRIP
 
 dst = 'tests/outputs/p58_p2/imagery_s1'
 catalog_fp = api.download(
-    roi='../shapefiles/s2grid=476da24.geojson',
+    roi='../shapefiles/s2grid=4772924.geojson',
     startdate='2018-04-01', enddate='2018-09-30',
     bands=['vv', 'vh'],
     dst_folderpath=dst,
@@ -112,8 +130,11 @@ print(json.dumps(result, indent=2))
 ```
 
 - **Expect:** one or more `(orbit_state, relative_orbit)` keys with counts. spec 58 D17's own
-  probe (2026-09-07) saw `sat:orbit_state: 'ascending'`, `sat:relative_orbit: 146` for this
-  bbox/window — but 6 months of coverage may turn up more than the single item that probe found.
+  probe (2026-09-07) saw `sat:orbit_state: 'ascending'`, `sat:relative_orbit: 146` — but that
+  probe was a single item over the *`476da24`* bbox (the cell D18 named; see the Purpose note).
+  **Make no prediction here**: a different cell over 6 months may well turn up both orbit states,
+  which is the more interesting case for AC11. Whatever this step reports is the ground truth
+  step 3 is checked against.
 - **PASS if:** `n_rows > 0`. **This step's OUTPUT decides step 3's `properties_filter`** — it is
   not a pass/fail gate on its own.
 - **Record** which `sat:orbit_state` value(s) appear, and how many `relative_orbit` values share
@@ -125,17 +146,18 @@ print(json.dumps(result, indent=2))
 .venv/bin/python -c "
 import geopandas as gpd
 import json
-from shapely.geometry import box
 from fsd import api
 
-gdf = gpd.read_file('../shapefiles/austria_eurocrops_sampled_ethiopia_translated.geojson')
+cell = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
+gdf = gpd.read_file('../shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
+gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 result = {'step': 'build_s1_no_filter', 'expected': {'raises_or_succeeds': 'depends on step 2'}}
 try:
     td = api.create_training_data(
         label_polygons=gdf,
         catalog_filepath='tests/outputs/p58_p2/imagery_s1/catalog.parquet',
         startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
-        bands=['vv', 'vh'], id_col='fid', label_col='EC_hcat_n',
+        bands=['vv', 'vh'], id_col='fid', label_col='crop',
         export_folderpath='tests/outputs/p58_p2/training_s1',
         collection='sentinel-1-rtc',
     )
@@ -179,12 +201,14 @@ import geopandas as gpd
 import json
 from fsd import api
 
-gdf = gpd.read_file('../shapefiles/austria_eurocrops_sampled_ethiopia_translated.geojson')
+cell = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
+gdf = gpd.read_file('../shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
+gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 td = api.create_training_data(
     label_polygons=gdf,
     catalog_filepath='tests/outputs/p58_p2/imagery_s1/catalog.parquet',
     startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
-    bands=['vv', 'vh'], id_col='fid', label_col='EC_hcat_n',
+    bands=['vv', 'vh'], id_col='fid', label_col='crop',
     export_folderpath='tests/outputs/p58_p2/training_s1',
     collection='sentinel-1-rtc',
     properties_filter={'sat:orbit_state': '<ORBIT_STATE>'},
@@ -211,12 +235,14 @@ import geopandas as gpd
 import json
 from fsd import api
 
-gdf = gpd.read_file('../shapefiles/austria_eurocrops_sampled_ethiopia_translated.geojson')
+cell = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
+gdf = gpd.read_file('../shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
+gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 td = api.create_training_data(
     label_polygons=gdf,
     catalog_filepath='tests/outputs/demo_e2e/imagery/catalog.parquet',
     startdate='2018-04-01', enddate='2018-09-30', mosaic_days=20,
-    bands=['B04', 'B08', 'SCL'], id_col='fid', label_col='EC_hcat_n',
+    bands=['B04', 'B08', 'SCL'], id_col='fid', label_col='crop',
     export_folderpath='tests/outputs/p58_p2/training_s2',
     collection='sentinel-2-l2a',
 )
@@ -259,7 +285,7 @@ from fsd import collections as _collections
 ORBIT = None  # e.g. 'ascending' -- must match step 3b if step 3b ran
 
 cat = TileCatalog('tests/outputs/p58_p2/imagery_s1/catalog.parquet').read()
-shapes = gpd.read_file('../shapefiles/s2grid=476da24.geojson')
+shapes = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
 subset = filter_gdf(cat, shapes, '2018-04-01', '2018-09-30')
 flat = builder.flatten_catalog(subset)
 out = 'tests/outputs/p58_p2/s1_eyeball'
