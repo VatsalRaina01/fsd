@@ -272,6 +272,16 @@ print(json.dumps(result, indent=2))
 - **`td.n_timestamps` should match between the S1 and S2 runs** (same `startdate`/`enddate`/
   `mosaic_days` → the same calendar-interval mosaic axis, ADR 0010) even though the two cubes
   come from unrelated acquisitions.
+- **`td.bands` should be `['B04', 'B08']` here — SCL is consumed, not returned.** Nothing in this
+  call applies the cloud mask; the verb has no mask parameter at all (D3). `build_datacube` reads
+  `mask_spec` off the `sentinel-2-l2a` declaration and, because `SCL` is among the requested
+  `bands`, runs `apply_cloud_mask_scl` (setting B04/B08 to nodata wherever SCL ∈ {0, 1, 3, 7, 8,
+  9, 10}) → `drop_bands(['SCL'])` → `median_mosaic`, **in that order**, so cloudy pixels are
+  excluded from the temporal median rather than averaged into it. Step 3's S1 call runs neither
+  op: `sentinel-1-rtc` declares `mask_spec=None`. **That is the AC15 claim in one line — same verb
+  signature, different declared behaviour.**
+  ⚠️ **Keep `SCL` in `bands`.** `mask_active` is literally `mask_spec.band in bands`, so removing
+  SCL disables masking **silently** — no error, no warning, just an unmasked cube.
 
 ### Step 5 — QGIS eyeball of one S1 cube
 
