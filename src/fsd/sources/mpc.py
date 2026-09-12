@@ -194,13 +194,9 @@ def _items_to_gdf(
     """Parse MPC STAC items into a catalog GeoDataFrame. Pure — no network — so
     it is unit-testable with duck-typed fake items (`.id`, `.datetime`,
     `.geometry`, `.properties`, `.assets[*].href`)."""
-    # `offset_for_item` derives the radiometric offset from S2's processing-baseline
-    # properties, which a non-radiometric collection's items simply do not carry --
-    # calling it unconditionally raised `ValueError` for every sentinel-1-rtc item
-    # (spec 58 P2, found while wiring S1 ingest). A collection declaring
-    # `radiometry_bands=()` (S1: no band carries radiometry) has nothing to derive, so
-    # skip straight to 0 rather than probing for a property that was never going to be
-    # there.
+    # `offset_for_item` reads S2's processing-baseline properties, which a
+    # non-radiometric collection's items do not carry -- it raises for them. A
+    # declaration with `radiometry_bands=()` has no offset to derive (spec 58 D17).
     needs_offset = declaration.radiometry_bands != ()
     rows = [
         {

@@ -106,10 +106,8 @@ def properties_filter_values(want) -> list[str]:
     the STAC `sat` extension — `list(146)` raises `TypeError`, and `list("descending")`
     would silently become ten one-character values.
 
-    Comparison is on the **string form of both sides**, so `146` and `"146"` select the
-    same rows and canonicalize to the same digest. Without that, a caller who spelled an
-    int property as a string got a silent filter to zero rows — the exact failure D9.1
-    exists to prevent, arrived at from a third direction.
+    Comparison is on the string form of both sides, so `146` and `"146"` select the same
+    rows and canonicalize to the same digest rather than filtering silently to zero (D9.1).
     """
     values = list(want) if isinstance(want, (list, tuple, set, frozenset)) else [want]
     return [str(v) for v in values]

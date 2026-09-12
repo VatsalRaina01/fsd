@@ -8,10 +8,35 @@ this — read [`docs/history.md`](docs/history.md).
 
 ## Resuming after a break — start here
 
-**Spec 58 P2 (`sentinel-1-rtc`) is IMPLEMENTED and REVIEWED (review 2026-09-12), green, and NOT
-YET MERGED. The next action is the USER RUNNING `runbooks/58-p2-window-a.md` (AC15).** The Opus
-review found **two real bugs + one spec deviation**, all fixed on `worktree-spec58-p2` with tests
-(suite now **1133 passed / 104 skipped**, ruff clean):
+**Spec 58 P2 (`sentinel-1-rtc`) is IMPLEMENTED, REVIEWED, and the AC15 run-book RAN GREEN
+(2026-09-12), including the QGIS eyeball. The next action is the MERGE: `--no-ff`
+`worktree-spec58-p2` into `main`, prune the worktree, then push (`main` is ~14 commits behind
+plus this).** Suite **1169 passed / 104 skipped**, ruff clean.
+
+**Run-book 58-p2 outcome (AC15 + AC11 on real data).** Window A ran as
+`s2grid=4772924`, **2018-06-01 → 2018-07-01**, `mosaic_days=10` (T=3), one orbit track plus a
+slice of the other. What it proved that no fixture could:
+
+- **AC11 fired for real.** A catalog spanning two orbit states raised with the full D9
+  enumeration: `('ascending', 146)` 5 acquisitions / 100% ROI coverage, `('descending', 22)` 2 /
+  100%. Enforced key, available combinations, counts, the reported-not-enforced
+  `sat:relative_orbit`, and coverage — all present.
+- **AC12/AC13 followed:** the same build with `properties_filter={'sat:orbit_state': 'ascending'}`
+  succeeded, into a **different window folder**, because the selection is part of `params_key`'s
+  digest (D9.3) — observed, not just asserted.
+- **AC14/D10 held:** every download ran with `PC_SDK_SUBSCRIPTION_KEY` unset. No 401/403/404.
+- **AC15:** S1 and S2 both produced training arrays through the same verb signature; QGIS showed
+  real backscatter texture.
+
+⚠️ **The download economics are the headline finding, and P3 must plan for them.** A transfer is
+a **whole-asset byte copy**, so a ~6 km cell pulls entire ~250 km scenes: **~3.7 GB per scene**,
+**387.7 GB for the full Apr–Sep window** against **44.6 GB free**. Even the smallest single orbit
+track (110.6 GB) was 2.5× the free space, so the window had to shrink to one month. That is why
+`download()` gained `properties_filter` (below). A windowed-read ingest would cut this by ~3
+orders of magnitude and is not filed yet.
+
+**The Opus review (2026-09-12) found two real bugs + one spec deviation** before the run, all
+fixed on the branch with tests:
 
 1. **`properties_filter` could not filter on `sat:relative_orbit`** — D9 names it as the other
    property the generic filter serves, and it is an **int** in STAC. `list(146)` raised
@@ -91,12 +116,11 @@ cut and pushed.** ⚠️ **`main` is ~14 commits AHEAD of `origin/main` — ever
 unpushed**, and P2's merge will add one more.
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Spec 58 P2 is reviewed.** Its branch `worktree-spec58-p2` (`.claude/worktrees/spec58-p2`)
-   holds the implementation + the review fixes — do NOT re-enter via a fresh `EnterWorktree`,
-   which branches from `origin/main` and would miss them; use
-   `EnterWorktree(path=".../worktree-spec58-p2")` or a plain `cd`. Run
-   `runbooks/58-p2-window-a.md`; then merge + prune; then **push `main`** (still unpushed — the
-   user's call).
+2. **Spec 58 P2 is reviewed and its run-book is green — it is ready to MERGE.** From the
+   MAIN checkout (not the worktree, which cannot check out `main`):
+   `git merge --no-ff worktree-spec58-p2`, then `git worktree remove
+   .claude/worktrees/spec58-p2` and `git branch -d worktree-spec58-p2`. Then **push `main`**
+   (still unpushed — the user's call).
 3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
    **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity
    measured ~117 GB against ~110 GB of headroom. `demos/e2e_austria.py` still requests B8A and
