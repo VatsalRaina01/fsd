@@ -29,12 +29,17 @@ and **43 labelled `AT_2018_TRAIN` fields fall inside it** (7 crop classes, mostl
 > labels", but those two do not intersect:
 > `austria_eurocrops_sampled_ethiopia_translated.geojson` is, despite the `austria_` prefix,
 > **translated to Ethiopia** (36.1–36.9 °E, 11.4–12.0 °N), while `s2grid=476da24` is in Austria
-> (16.03–16.12 °E, 48.1 °N) — and **0 of the 900** Austria-located `AT_2018_TRAIN` fields fall in
-> `476da24` either (it lies outside `AT_ROI`). So D18's Window A as written has imagery but **no
-> labels**, and could not prove the "labelled" half of AC15. `s2grid=4772924` keeps every property
-> D18 actually wanted — one cell, one MGRS tile, inside the existing S2 archive, Apr–Sep 2018 —
-> and adds the labels. The Ethiopia file cannot be used at all: its imagery
-> (`satellite_benchmark/`) was deleted (see `CLAUDE.md`).
+> (16.034–16.116 °E, 48.106–48.156 °N, just south-east of Vienna). The Ethiopia file cannot be
+> used at all anyway — its imagery (`satellite_benchmark/`) was deleted (see `CLAUDE.md`).
+>
+> **And the Austrian labels do not rescue that cell either.** Measured 2026-09-12:
+> `476da24` lies **47.7 km outside `AT_ROI`** (no intersection), and the nearest
+> `AT_2018_TRAIN` field is **50.2 km** away — **0 of 900** fall inside it. Its *imagery* is
+> fine (entirely within MGRS **T33UWP**, 21 archive granules cover it fully), which is exactly
+> what it was authored for; it simply has no labels. So D18's Window A as written could not
+> prove the "labelled" half of AC15. `s2grid=4772924` keeps every property D18 wanted — one
+> cell, one MGRS tile (T33UWP again), inside the existing S2 archive, Apr–Sep 2018 — and adds
+> the 43 labelled fields.
 
 **The S2 half is already on disk** — the Austria archive at `tests/outputs/demo_e2e/imagery/`
 (184 granules, `B04,B08,SCL`, MPC, re-ingested 2026-09-07; see `PROGRESS.md`). Step 5 builds
@@ -54,13 +59,15 @@ against it directly; nothing here re-downloads S2.
   echo "PC_SDK_SUBSCRIPTION_KEY is: ${PC_SDK_SUBSCRIPTION_KEY:-<unset>}"
   unset PC_SDK_SUBSCRIPTION_KEY
   ```
-- `../shapefiles/s2grid=4772924.geojson` exists (written 2026-09-12 by the review session, from
-  `fsd.grid.roi_to_s2_grids(AT_ROI, grid_size_km=5)`). ⚠️ **`../shapefiles/` resolves only from
-  the main `fsd/` checkout**, whose parent is the workspace root — NOT from a
-  `.claude/worktrees/` copy, which is three levels deeper. Run every step from the main checkout.
-- `../shapefiles/AT_2018_TRAIN.geojson` exists (900 Austria 2018 crop fields, EPSG:31287;
-  `id_col="fid"`, `label_col="crop"` — the same pair `demos/e2e_austria.py` uses). The steps
-  below reproject it and clip to the cell themselves.
+- `notebooks/shapefiles/s2grid=4772924.geojson` — committed to the repo (added 2026-09-12, from
+  `fsd.grid.roi_to_s2_grids(AT_ROI, grid_size_km=5)`; see that folder's `NOTICE` for why this
+  cell and not `476da24`). Being in-repo, it resolves from the main checkout **and** from any
+  `.claude/worktrees/` copy — unlike the workspace-root `../shapefiles/`, which does not.
+- `notebooks/shapefiles/AT_2018_TRAIN.geojson` — 900 Austria 2018 crop fields, EPSG:31287;
+  `id_col="fid"`, `label_col="crop"` (the same pair `demos/e2e_austria.py` uses). The steps below
+  reproject it and clip it to the cell themselves. ⚠️ It carries **EuroCrops' terms, not fsd's
+  MIT** (`notebooks/shapefiles/NOTICE`) — fine to read locally here; do not redistribute its
+  contents or paste field rows into a result block.
 - `tests/outputs/demo_e2e/imagery/catalog.parquet` exists (the S2 archive). If it does not,
   stop — that is a different, larger problem than this run-book.
 - A few GB of disk and network for step 1 (one grid cell, ~6 months of S1 acquisitions — far
@@ -81,7 +88,7 @@ assert os.environ.get('PC_SDK_SUBSCRIPTION_KEY') is None, 'unset PC_SDK_SUBSCRIP
 
 dst = 'tests/outputs/p58_p2/imagery_s1'
 catalog_fp = api.download(
-    roi='../shapefiles/s2grid=4772924.geojson',
+    roi='notebooks/shapefiles/s2grid=4772924.geojson',
     startdate='2018-04-01', enddate='2018-09-30',
     bands=['vv', 'vh'],
     dst_folderpath=dst,
@@ -148,8 +155,8 @@ import geopandas as gpd
 import json
 from fsd import api
 
-cell = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
-gdf = gpd.read_file('../shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
+cell = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
+gdf = gpd.read_file('notebooks/shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
 gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 result = {'step': 'build_s1_no_filter', 'expected': {'raises_or_succeeds': 'depends on step 2'}}
 try:
@@ -201,8 +208,8 @@ import geopandas as gpd
 import json
 from fsd import api
 
-cell = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
-gdf = gpd.read_file('../shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
+cell = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
+gdf = gpd.read_file('notebooks/shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
 gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 td = api.create_training_data(
     label_polygons=gdf,
@@ -235,8 +242,8 @@ import geopandas as gpd
 import json
 from fsd import api
 
-cell = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
-gdf = gpd.read_file('../shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
+cell = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
+gdf = gpd.read_file('notebooks/shapefiles/AT_2018_TRAIN.geojson').to_crs(cell.crs)
 gdf = gdf[gdf.intersects(cell.geometry.iloc[0])]  # the 43 fields inside the cell
 td = api.create_training_data(
     label_polygons=gdf,
@@ -285,7 +292,7 @@ from fsd import collections as _collections
 ORBIT = None  # e.g. 'ascending' -- must match step 3b if step 3b ran
 
 cat = TileCatalog('tests/outputs/p58_p2/imagery_s1/catalog.parquet').read()
-shapes = gpd.read_file('../shapefiles/s2grid=4772924.geojson')
+shapes = gpd.read_file('notebooks/shapefiles/s2grid=4772924.geojson')
 subset = filter_gdf(cat, shapes, '2018-04-01', '2018-09-30')
 flat = builder.flatten_catalog(subset)
 out = 'tests/outputs/p58_p2/s1_eyeball'
