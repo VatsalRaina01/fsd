@@ -65,7 +65,7 @@ def create_environment(
         raise RuntimeError(
             f"{name}: az returned {version!r} (stderr: {out.stderr.strip()[:400]}) -- not a "
             "version number. A broken `az` (or a half-deleted `ml` extension) can produce "
-            "exactly this; see notebooks/00_build_images.ipynb's Troubleshooting."
+            "exactly this; see notebooks/build_images.ipynb's Troubleshooting."
         )
     return version
 

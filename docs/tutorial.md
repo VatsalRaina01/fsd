@@ -155,7 +155,6 @@ so this builds a single datacube via the same workflow entrypoint `create_traini
 the hood:
 
 ```python
-from fsd import config
 from fsd.workflows import create_datacube
 
 csv_filepath = "/tmp/fsd_tutorial/infer_build/input.csv"
@@ -164,10 +163,13 @@ create_datacube.run_create_datacube(
     shapefilepath="tests/data/tutorial/roi.geojson", id_col="id",
     run_folderpath="/tmp/fsd_tutorial/infer_build",
     startdate=startdate, enddate=enddate, bands=["B04", "B08", "SCL"],
-    scl_mask_classes=config.SCL_MASK_CLASSES,
     mosaic_days=20, csv_filepath=csv_filepath, label_col=None, cores=1,
 )
 ```
+
+The SCL mask is not passed: it is declared on the `sentinel-2-l2a` collection (spec 58 D3).
+`collection=` (default `"sentinel-2-l2a"`) and `properties_filter=` are the two knobs that
+replace it — see `fsd.collections.known()`.
 
 This takes seconds — it's one cell, not 43 fields.
 

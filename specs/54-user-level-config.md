@@ -62,7 +62,7 @@ addresses; it does not introduce credential storage. (#78, user, 2026-08-21.)
 - `fsd init` — fsd's first console script, and the write path.
 - Retiring `env.example.sh` and the config half of `notebooks/_config.py`, including the two tests
   that pin them.
-- Updating `notebooks/e2e_austria_aml.ipynb` and `notebooks/00_build_images.ipynb` to the new call.
+- Updating `notebooks/e2e_austria_aml.ipynb` and `notebooks/build_images.ipynb` to the new call.
 
 **Out:**
 

@@ -120,7 +120,7 @@ class ImageDefinition:
 
 def _build_wheel(src_dir: str, dest_dir: str) -> str:
     """`pip wheel {src_dir} --no-deps -w {dest_dir}` -- the same call
-    `00_build_images.ipynb` made, now library code. `--no-deps`: the fsd wheel alone; the
+    `build_images.ipynb` made, now library code. `--no-deps`: the fsd wheel alone; the
     rendered Dockerfile's `pip install` resolves its dependencies inside the image.
 
     `--no-build-isolation` first, then a retry without it. With it, the build backend has to

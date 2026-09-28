@@ -192,8 +192,8 @@ works for a stranger; `rise` used it without being told to.
 ### P7 — hand-pasted image versions
 
 ```python
-AZ_ENV_VERSION       = "8"   # <- paste from 00_build_images.ipynb Part C
-AZ_INFER_ENV_VERSION = "6"   # <- paste from 00_build_images.ipynb Part C
+AZ_ENV_VERSION       = "8"   # <- paste from build_images.ipynb Part C
+AZ_INFER_ENV_VERSION = "6"   # <- paste from build_images.ipynb Part C
 ```
 
 AML auto-increments on every register, so these change on every rebuild, and nothing checks that

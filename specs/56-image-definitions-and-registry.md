@@ -1,6 +1,6 @@
 ---
 status: current
-summary: The AML image recipe lives in `00_build_images.ipynb` as 110 lines of helpers keyed on the git state of an fsd CHECKOUT, so no consumer can use it. Move it into fsd as a declarative `ImageDefinition` (D1), digest the RESOLVED definition (D2), publish definitions to a storage-seam registry mirroring `fsd.model.registry` (D3), and make `ensure_environment` check-then-build (D4). Eight decisions. Closes #79.
+summary: The AML image recipe lives in `build_images.ipynb` as 110 lines of helpers keyed on the git state of an fsd CHECKOUT, so no consumer can use it. Move it into fsd as a declarative `ImageDefinition` (D1), digest the RESOLVED definition (D2), publish definitions to a storage-seam registry mirroring `fsd.model.registry` (D3), and make `ensure_environment` check-then-build (D4). Eight decisions. Closes #79.
 ---
 
 # Spec 56 — image definitions, and a registry to keep them in
@@ -24,7 +24,7 @@ registry path is *passed*, never configured).
 
 ## 1. The problem
 
-`notebooks/00_build_images.ipynb` is a hard prerequisite for every AML run, and it is unusable
+`notebooks/build_images.ipynb` is a hard prerequisite for every AML run, and it is unusable
 outside an fsd checkout. Concretely, from the notebook as it stands:
 
 - **The recipe is a Dockerfile in the fsd repo.** `notebooks/images/{base,sklearn}/` — a
@@ -55,7 +55,7 @@ from* except a JSON file in one developer's build-context folder — the exact g
 - `ensure_environment()`: digest → look up → reuse or build → publish the definition.
 - Moving the notebook helpers worth keeping into `src/fsd/`, and deleting the rest.
 - What replaces `git_state()` as the staleness key, for a consumer and for an fsd developer.
-- What `00_build_images.ipynb` becomes.
+- What `build_images.ipynb` becomes.
 
 **Out:**
 
@@ -261,7 +261,7 @@ reference *is* the git revision, for anyone installing fsd from a ref, and it is
 digest for anyone building from a tree. Either way the key travels with the definition instead of
 living in one working copy.
 
-This is flytekit's design and #79 already named it: *"`00_build_images.ipynb` already hand-rolls
+This is flytekit's design and #79 already named it: *"`build_images.ipynb` already hand-rolls
 Flyte's pattern. `status()` + `.last_registered.json` is check-then-build — keyed on git state.
 Flyte keys the same check on the spec hash, which is the better key and needs no checkout."*
 
@@ -289,7 +289,7 @@ notebook's version prints six lines and decides nothing, which is right for a no
 for a library. It returns a small dataclass (`state`, `digest`, `registered`, `reason`) and the
 notebook prints it.
 
-### D7 — `00_build_images.ipynb` becomes a thin caller
+### D7 — `build_images.ipynb` becomes a thin caller
 
 Both Parts collapse to a definition and one call each; the wheel-build cell, the git-state cells,
 the helpers cell and the Part C "paste these versions" cell all go. Part C is worth keeping in
@@ -347,7 +347,7 @@ Its existing failure modes must keep failing.
    No test may reach a real workspace or a real registry.
 9. `pytest -q` and `ruff check src/ tests/` clean; identifier sweep clean (this touches a notebook
    and the docs that name images).
-10. `00_build_images.ipynb` has no saved outputs, no hardcoded identifiers, and no `git`/`pip wheel`
+10. `build_images.ipynb` has no saved outputs, no hardcoded identifiers, and no `git`/`pip wheel`
     subprocess call left in it.
 
 ## 5. Risks
@@ -528,7 +528,7 @@ need no Azure at all.
    stubbed: AC 4.
 6. **`verify_image`** — the `image_ref=` + `registry=` path (D8). **Run the existing spec 47 tests
    first and confirm they are green and unmodified after.**
-7. **`00_build_images.ipynb`** — D7. Delete the wheel-build, git-state and helper cells; two
+7. **`build_images.ipynb`** — D7. Delete the wheel-build, git-state and helper cells; two
    definitions, two calls. Clear outputs.
 8. **`notebooks/images/`** — delete `base/` and `sklearn/` once the rendered Dockerfile is proven
    equivalent (diff the rendered text against the current file before deleting; they must match

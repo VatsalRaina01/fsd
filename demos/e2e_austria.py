@@ -64,6 +64,9 @@ LABEL_COL = "crop"
 # The SCL mask classes are no longer a verb parameter (spec 58 D3) -- they are declared
 # on the `sentinel-2-l2a` CollectionDeclaration (`fsd.collections.get("sentinel-2-l2a")`),
 # and happen to be exactly this list already, so this demo's behavior is unchanged.
+# `collection=` (default "sentinel-2-l2a") and `properties_filter=` (spec 58 D9) are both
+# left at their defaults here: S2 L2A declares `mosaic_partition=()`, so there is no
+# partitioned property to select and an empty filter contributes nothing to the cube path.
 BANDS = ["B04", "B08", "B8A", "SCL"]
 MOSAIC_DAYS = 20
 
@@ -181,6 +184,10 @@ def step_download(creds, download_roi_fp):
           flush=True)
 
     # 2b) idempotent, resumable download (skips files on disk; re-run to resume a bad window).
+    # A download is a whole-asset byte copy: MAX_TILES bounds the granule count, not the bytes,
+    # because a small ROI still pulls whole 110 km tiles (~122 MB per band per tile). Collections
+    # with larger scenes cost far more -- Sentinel-1 RTC is ~3.7 GB per 250 km scene -- so on any
+    # collection but this one, size the window before running it.
     print("  2b) download_resume (cog=True: jp2 → COG on arrival) ...", flush=True)
     cat = TileCatalog(catalog_fp)
     results = cdse.download_resume(

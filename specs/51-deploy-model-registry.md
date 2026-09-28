@@ -49,7 +49,7 @@ environment by hand. The e2e notebook is explicit about the cost, in its own con
 
 ```python
 AZ_INFER_ENV_NAME    = "fsd-infer-sklearn"
-AZ_INFER_ENV_VERSION = "6"   # <- paste from 00_build_images.ipynb Part C
+AZ_INFER_ENV_VERSION = "6"   # <- paste from build_images.ipynb Part C
 # AML auto-increments on every register, so these change every time you rebuild.
 ```
 
@@ -92,7 +92,7 @@ at the one existing chokepoint (D4); the registry layout documented well enough 
 backend is additive (D10).
 
 **Out:** **building or registering the inference image** — ADR 0002 says P6 is where image-build
-gets automated *later*, and D8 keeps that "later" (`00_build_images.ipynb` stays the operator step).
+gets automated *later*, and D8 keeps that "later" (`build_images.ipynb` stays the operator step).
 **An OCI/ACR-backed registry** — evaluated, deferred, §6. **The AML model registry** — rejected,
 §6, it breaks the runner seam. **Serving/endpoints** — that is P5, and the user has explicitly
 sequenced P5 after this. **Model training** — permanently out of scope (ADR 0018). **Changing the
@@ -307,7 +307,7 @@ subsequently **reversed by the user on 2026-08-18**, on the grounds that image-b
 Azure-specific plumbing which *"fights the runner/storage seam and would make `deploy`
 un-runnable on any other backend"*. The user's 2026-08-22 answer picked the same side a third time.
 
-So: building stays `00_build_images.ipynb` plus an operator run-book step, and `deploy` never calls
+So: building stays `build_images.ipynb` plus an operator run-book step, and `deploy` never calls
 `az ml`/`az acr`. What `deploy` does instead is **refuse to register an image it has not seen
 work** (D5) — enforcement, not construction.
 

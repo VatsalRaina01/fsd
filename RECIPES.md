@@ -1191,3 +1191,30 @@ also the check that makes such a diff safe to review by reading only the removal
 
 The convention the sweep applies is `docs/reference/code-comments.md`: **cut the changelog,
 keep the hazard.**
+
+---
+
+## Catch dead verb kwargs in notebooks, docs and demos
+
+`pytest` never executes a notebook cell or a fenced code block, so a call site keeps passing a
+parameter for as long as nobody runs it by hand. Spec 58 P1 removed `scl_mask_classes` from four
+verbs; the demo `.py` files were updated, and **four call sites were not** — three cells of
+`notebooks/e2e_austria_aml.ipynb` and the `run_create_datacube` block in `docs/tutorial.md`, each
+of which would have raised `TypeError` on the next real run. Found 2026-09-12, a year of green
+suites later.
+
+```bash
+cd fsd
+.venv/bin/python runbooks/scripts/docs_kwarg_sweep.py     # exits 1, naming each stale call site
+```
+
+It parses every notebook code cell, every ```python block in `docs/`+`demos/`+`README.md`, and
+`demos/*.py`+`examples/**.py`, then checks each kwarg against the **live** `inspect.signature` of
+the fsd verb being called. Run it after any change to a verb signature, and before signing off a
+docs pass.
+
+Two traps it was built around, both worth keeping if it is ever rewritten: pair markdown fences by
+**state, not regex** (a non-greedy `` ```(?:python)?\n(.*?)``` `` silently pairs each *closing*
+fence with the next *opening* one, which shifted every block by one and reported a clean sweep on
+a file that had a stale call in it); and skip a snippet whose `ast.parse` fails rather than
+failing the run, since docs legitimately contain fragments.

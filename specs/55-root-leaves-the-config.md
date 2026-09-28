@@ -244,7 +244,7 @@ non-zero naming the three non-interactive forms.
 
 ## 7. Questions at sign-off — ALL RESOLVED (user, 2026-08-26/27)
 
-**Q1 — does `load()` gain subset support?** `00_build_images.ipynb` needs `resource_group` +
+**Q1 — does `load()` gain subset support?** `build_images.ipynb` needs `resource_group` +
 `workspace`, and `load()` requires the whole required set, so building an image demands a cluster
 and a managed identity you may not have yet.
 > **RESOLVED — as proposed: leave it** (user, 2026-08-27): *"leave it till it becomes an actual
@@ -302,7 +302,7 @@ mechanism.
    non-tty guard, and `fsd config` printing optional keys as optional.
 4. **`tests/test_cli.py`** — AC 6, 7, 8.
 5. **Notebooks** — `e2e_austria_aml.ipynb` gets D3's `ROOT` cell and reads `cfg.model_registry`;
-   `00_build_images.ipynb` is otherwise spec 56's business.
+   `build_images.ipynb` is otherwise spec 56's business.
 6. **Docs** — `docs/reference/environment.md`: `AZ_ROOT` moves from "one of the six `fsd init`
    writes" to "an environment variable your notebook reads; fsd does not read it", and the two
    registry variables are added to the table. `CHANGES.md` entry amending spec 54's.

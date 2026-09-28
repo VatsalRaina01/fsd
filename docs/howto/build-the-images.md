@@ -154,7 +154,7 @@ matches how the image was built; `build_context` wins if both are given.
 
 ## Prefer to run it than read it?
 
-[`notebooks/00_build_images.ipynb`](../../notebooks/00_build_images.ipynb) is this page as a
+[`notebooks/build_images.ipynb`](../../notebooks/build_images.ipynb) is this page as a
 runnable notebook, and is **the one notebook this repo tracks**. It reads every Azure coordinate
 (including `image_registry`) from `~/.config/fsd/config.toml` via `fsd.config.load()` rather than
 carrying them, and `tests/test_notebooks.py` fails the build if it ever gains a saved output or a

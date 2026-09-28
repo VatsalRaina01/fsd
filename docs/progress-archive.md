@@ -5009,7 +5009,7 @@ pipeline/networked scripts")._
 _Previously: 2026-08-28 (**SPEC 57 LANDED; `notebooks/shapefiles/` NOW PUBLIC WITH A NOTICE;
 `main` @ `e4879b0`, pushed, clean.** Since the entry below: the user un-ignored
 `notebooks/shapefiles/` themselves (`16b66f6` — 900 EuroCrops-derived Austrian fields + the two
-demo geometries + a scrubbed `00_build_images.ipynb`, so critical-path item 2 is **done**), and a
+demo geometries + a scrubbed `build_images.ipynb`, so critical-path item 2 is **done**), and a
 `NOTICE` was added beside them (`e4879b0`) recording provenance and stating plainly that the
 **upstream EuroCrops licence has NOT been reconciled with this repo's MIT licence** — it grants
 nothing fsd cannot. Nothing reaches the wheel (`packages.find` is `where=["src"]`). The canonical
@@ -5035,7 +5035,7 @@ sequence, so never more than 16 threads are live; `as_completed`'s exception ord
 AC5. **NEXT: §9 step 5 — a real cluster run against the pre-D1 baseline.** It is the user's, not
 an agent's ([[real-run-beats-review]]), and until it happens the 777 s → <100 s number is a
 *hypothesis*. Spec 56's §9 step 10 real AML run is also still outstanding, unrelated.
-[The `00_build_images.ipynb` leak-guard warning recorded here was resolved by the user in
+[The `build_images.ipynb` leak-guard warning recorded here was resolved by the user in
 `16b66f6`.])_
 
 **Spec 57 — LANDED 2026-08-27** (signed off, implemented, reviewed, merged).
@@ -5101,7 +5101,7 @@ parameterized copy the new image registry builds on — exactly the fallback the
 for tests, no network in the suite), `fsd.image.registry` (D3, on `_core`), `fsd.aml.environment`
 + `fsd.aml.ensure_environment` (D4, `az` calls behind an injectable seam), `verify_image`'s
 `image_ref=`/`registry=` path (D8, spec 47's own tests green and unmodified), the rewritten
-`00_build_images.ipynb` (D7, 11 cells vs the old 22) and the deleted
+`build_images.ipynb` (D7, 11 cells vs the old 22) and the deleted
 `notebooks/images/{base,sklearn}/` (step 8, rendered-Dockerfile diff confirmed equivalent before
 deletion, `DROPPED.md` diff confirmed byte-identical modulo comments/blanks, entry written) are all
 done. **Not done: a real AML run** (§9 step 10 — MEMORY `real-run-beats-review`); `main` is merged
@@ -5203,7 +5203,7 @@ RECIPES.md's documented known-clean list — `env.example.sh`/`env.local.sh` as 
 `fsd-aml-env`/`fsd-infer-env`, the `030f6ac` commit sha, `identityReference`/`prevent_destroy` as
 generic API terms — no new leak).
 
-Both tracked notebooks (`e2e_austria_aml.ipynb`, `00_build_images.ipynb`) now call
+Both tracked notebooks (`e2e_austria_aml.ipynb`, `build_images.ipynb`) now call
 `fsd.config.load()` with lowercase attributes (`cfg.root`, not `cfg.AZ_ROOT`); their checkout-path
 resolution is a two-line `pathlib.Path.cwd()` cell per D6, not `find_repo()`. `docs/howto/
 run-at-scale.md` + `build-the-images.md` prerequisite lines and `docs/reference/environment.md`'s
@@ -5223,7 +5223,7 @@ outside `config.py` and `cli.py`. What the review changed:
    that `tomllib` then refuses to parse. Fixed; DEL is now in the AC-6 adversarial table.
 2. **`docs/howto/build-the-images.md` told the user to fill "AZ_RG and AZ_ML_WORKSPACE at
    minimum"**, which `load()` rejects — it requires all six or raises `MissingConfig`. The line now
-   says all six. *Left open (a design question, not a defect):* `00_build_images.ipynb` genuinely
+   says all six. *Left open (a design question, not a defect):* `build_images.ipynb` genuinely
    needs only two of the six, and the retired `_config.load(*names)` allowed a subset. Giving
    `load()` subset support would change spec 54 D7, so it stays unbuilt pending sign-off.
 3. **"never reads or writes `os.environ`" was stated twice and was wrong** (`load()`'s docstring,
@@ -5372,7 +5372,7 @@ of create_training_data -> train -> deploy -> run_inference where the model is r
 an `abfss://` registry, and the evidence specs 52 and 53 both said only a real run could give.
 
 The notebook was un-ignored without being added to `tests/test_notebooks.py`'s `TRACKED_NOTEBOOKS`
-— the mechanism that makes the `00_build_images.ipynb` exception safe — so it went public unguarded,
+— the mechanism that makes the `build_images.ipynb` exception safe — so it went public unguarded,
 clean only because outputs had been cleared by hand. It now carries all six identifier patterns and
 both structural rules, mutation-checked: injecting a storage account URL plus one `execution_count`
 fails exactly three tests, each naming the leak class. Suite **977 passed, 96 skipped**, ruff clean,
@@ -6439,7 +6439,7 @@ helper, not two. Build it during 48, import it in 49.
 - **Spec 47 reviewed by Opus** (5 defects fixed, #64/#65/#66 closed, **#75** filed for D9's deferred
   existence pass). Notable: the merge progress bar was measuring header-opens, not the ~1000 s of
   pixel reads it claimed — it hit 100 % and then ran the expensive phase in silence.
-- **The AML image build is documented and split.** `notebooks/00_build_images.ipynb` is **the one
+- **The AML image build is documented and split.** `notebooks/build_images.ipynb` is **the one
   tracked notebook** (`.gitignore` un-ignores it explicitly), with `docs/howto/build-the-images.md`
   as the scrubbed public page and `notebooks/images/{base,sklearn}/` as tracked build contexts.
   Part A and Part B register independently, because `az ml environment create` **always** mints a

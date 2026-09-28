@@ -247,7 +247,7 @@ absent. Closes #79.
   `.registry_version`/`.registry_ref` are the registry's (the only thing
   `verify_image(image_ref=..., registry=...)` can resolve). Passing one where the other belongs
   fails as a missing `v<N>` directory rather than as a type error.
-- **`00_build_images.ipynb` collapses to two declarations and two calls** (D7). The old
+- **`build_images.ipynb` collapses to two declarations and two calls** (D7). The old
   wheel-build, git-state and helper cells are gone; Part C's "paste these versions into the e2e
   notebook" step is gone too — the e2e notebook now calls `ensure_environment` itself and gets the
   same answer by asking the same registry.
@@ -308,7 +308,7 @@ rule and precedence rule are unchanged.
   `resource_group`, `workspace`, `cluster`, `uami_client_id`, `root`) — read with stdlib
   `tomllib`, written by a small hand-rolled emitter (`tomllib` cannot write; taking `tomli-w` as a
   dependency for six flat strings was rejected, see specs/54 D2).
-- **Both tracked notebooks** (`e2e_austria_aml.ipynb`, `00_build_images.ipynb`) now call
+- **Both tracked notebooks** (`e2e_austria_aml.ipynb`, `build_images.ipynb`) now call
   `fsd.config.load()` and use the lowercase attribute names (`cfg.root` etc, not `cfg.AZ_ROOT`);
   their checkout-path resolution is now a two-line `pathlib.Path.cwd()` cell (they are developer
   artifacts that genuinely live in the checkout) rather than `_config.find_repo()`'s upward marker

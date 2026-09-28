@@ -19,3 +19,10 @@ class CropRF(BaseModelAdapter):
 
     def predict(self, X_chunk):
         return self.clf.predict(X_chunk).astype("uint8")
+
+class CropRFS1(CropRF):
+    """The same RF over Sentinel-1 vv/vh backscatter instead of optical indices."""
+    required_bands = ["vv", "vh"]
+    feature_sequence = [
+        (modify.mask_invalid_and_interpolate, {}),
+    ]

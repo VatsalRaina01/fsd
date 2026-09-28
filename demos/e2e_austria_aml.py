@@ -82,6 +82,10 @@ LABEL_COL = "crop"
 BANDS = ["B04", "B08", "B8A", "SCL"]
 # SCL mask classes are declared on the sentinel-2-l2a CollectionDeclaration now (spec 58
 # D3), not a verb parameter -- they happen to already be this list, so no behavior change.
+# `collection=` (default "sentinel-2-l2a") and `properties_filter=` (spec 58 D9) stay at
+# their defaults throughout: S2 L2A declares `mosaic_partition=()`, so nothing needs
+# selecting and an empty filter leaves every cube path byte-identical to pre-P2 (AC13).
+# `fsd.collections.known()` lists what else is registered (`sentinel-1-rtc` since P2).
 MOSAIC_DAYS = 20
 START = datetime.datetime(2018, 4, 1)
 END = datetime.datetime(2018, 9, 30)
@@ -703,6 +707,11 @@ def step_download(ml_client, root: str) -> dict:
                      "ml_client": ml_client, "poll_interval_seconds": 10}
 
     before = _list_run_ids(root)
+    # A download is a whole-asset byte copy, so MAX_TILES bounds granules, not bytes: a small
+    # ROI still pulls whole 110 km tiles (~122 MB per band per tile). On a collection with
+    # bigger scenes that is the dominant cost -- Sentinel-1 RTC measures ~3.7 GB per 250 km
+    # scene -- and `properties_filter=` is the lever, since it narrows discovery BEFORE
+    # max_tiles is counted. S2 L2A needs none of that, which is why nothing is passed here.
     # `n_shards` is deliberately NOT passed: `run_aml_download` defaults it to the
     # cluster's own `max_instances`, which is what makes this a full-width fan-out and
     # gives D11 its ~16 download admission samples. Pinning a number here would silently

@@ -19,7 +19,7 @@ actually demonstrates spec 49 — the first pass has nothing to skip.
 
 - venv `fsd/.venv`, extras `[dev,aml,mpc,azure,grid]`, VPN up, `az login` current.
 - `notebooks/env.local.sh` filled in (the six values `_config.py` reads).
-- **`00_build_images.ipynb` already run**, both images registered and *finished building*. Paste
+- **`build_images.ipynb` already run**, both images registered and *finished building*. Paste
   the two versions its Part C prints into cell 3 (`AZ_ENV_VERSION`, `AZ_INFER_ENV_VERSION`).
 - fsd at `main` ≥ `126c75f` — the three spec-48 review fixes are required, in particular
   `verify_adapter(runner="aml")` building on blob. On an older commit step A4 fails on the node.
@@ -103,7 +103,7 @@ and runs your adapter over it through the same unit the cluster runs.
   fetched these), then `verify_image` returning `pass: True` in ~40–380 s.
 - **PASS if:** `vres["pass"]` is `True`.
 - **If it raises `ValueError` about a missing `fsd-*.whl`:** your *call* is wrong, nothing was
-  verified — re-run `00_build_images.ipynb` step 3. Do not delete the wheel from the build context.
+  verified — re-run `build_images.ipynb` step 3. Do not delete the wheel from the build context.
 - **RECORD:** `vres["metrics"]`.
 
 ### Step A7 — The fan-out (cell 30)

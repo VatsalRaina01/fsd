@@ -101,7 +101,7 @@ prose is worth a one-line correction but does not affect the run.
 
 **Also fix cell 0's markdown** while you are in there: it says *"Run
 [`build_images.ipynb`](./build_images.ipynb) first"* — correct for `rise` — but the body of the
-notebook refers to `00_build_images.ipynb` (fsd's filename) in four places. Cosmetic; skip it if you
+notebook refers to `build_images.ipynb` (fsd's filename) in four places. Cosmetic; skip it if you
 would rather not touch a notebook you are about to run.
 
 **Verify the patch without opening Jupyter:**

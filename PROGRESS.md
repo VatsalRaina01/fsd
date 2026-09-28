@@ -8,10 +8,64 @@ this — read [`docs/history.md`](docs/history.md).
 
 ## Resuming after a break — start here
 
-**Spec 58 P2 (`sentinel-1-rtc`) is IMPLEMENTED, REVIEWED, and the AC15 run-book RAN GREEN
-(2026-09-12), including the QGIS eyeball. The next action is the MERGE: `--no-ff`
-`worktree-spec58-p2` into `main`, prune the worktree, then push (`main` is ~14 commits behind
-plus this).** Suite **1169 passed / 104 skipped**, ruff clean.
+**Spec 58 P2 (`sentinel-1-rtc`) is DONE and MERGED into `main` (2026-09-12, merge commit
+`795b117`, `--no-ff`; worktree + branch pruned). Implemented, Opus-reviewed, and the AC15
+run-book ran green including the QGIS eyeball.** Suite **1169 passed / 104 skipped**, ruff clean
+(verified on the branch immediately before the merge, which was a fast-forward made into a merge
+commit — the merged tree is byte-identical to the verified one).
+
+**The demos/notebook currency pass is DONE (2026-09-12, uncommitted).** It was expected to be
+documentation-only; it was **not**. Spec 58 P1 removed `scl_mask_classes` from four verbs, the
+demo `.py` files were updated at the time, and **four call sites were missed**: cells 7/20/32 of
+`notebooks/e2e_austria_aml.ipynb` and the `run_create_datacube` block in `docs/tutorial.md`. Each
+would have raised `TypeError` on its next real run, and no suite could see it — pytest never
+executes a notebook cell or a fenced block. All four are fixed, plus the P2 currency notes
+(`collection`/`properties_filter` on both demos, the whole-asset download-size caveat, and the
+stale "only Sentinel-2 L2A" claims in the notebook). `runbooks/scripts/docs_kwarg_sweep.py` is the
+new guard (RECIPES.md); it exits 1 naming any kwarg a doc passes that the live signature lacks.
+Suite **1171 passed / 106 skipped**, ruff clean.
+
+**`notebooks/e2e_austria_aml.ipynb` now RUNS SENTINEL-1 (2026-09-12, uncommitted, NOT YET RUN).**
+Asked for as "minimal changes"; it could not be one. Cell 3 gained a **`COLLECTION` switch**
+(`"sentinel-1-rtc"` | `"sentinel-2-l2a"`) that derives `BANDS`/`INFER_BANDS`/`ROI_FP`/`START,END`/
+`MOSAIC_DAYS`/`PROPERTIES_FILTER`/`MAX_CLOUDCOVER`/`TAG`; cells 5/7/11/14/17/20/29/32 read those
+instead of literals, so flipping the constant back gives a byte-identical S2 run. **Four things
+made it more than a rename, each of which would have failed the run:**
+
+1. **One catalog file = ONE collection.** `TileCatalog.append` raises a declaration conflict if
+   S1 rows are appended to the S2 catalog, so an S1 run **cannot** re-enter the S2 archive —
+   `RESUME_RUN` is now `None` for S1 and it gets a fresh `ROOT`.
+2. **`max_cloudcover=70` RAISES for S1** (`supports_cloud_cover=False`, D6 gate) — now `None`.
+3. **`properties_filter` is MANDATORY for S1, not optional** — `mosaic_partition=
+   ("sat:orbit_state",)` + `partition_policy="raise"`, so a window spanning both passes refuses
+   to build. Pinned to `ascending`.
+4. **`modify.compute_bands` knows ONLY optical indices** (every one defined on B02–B12; there is
+   no SAR index). NDVI/SAVI cannot carry over — this is the one that would have produced a wrong
+   model rather than an error. S1's `SEQ` is `mask_invalid_and_interpolate` alone, `vv`/`vh`
+   straight to the RF. `demo_model/my_adapter.py` gained `CropRFS1(CropRF)` (5 lines: overrides
+   `required_bands` + `feature_sequence`); `rf_{TAG}.joblib` and a tagged `MODEL_NAME` keep an S1
+   fit from overwriting the S2 model or repointing its alias.
+
+Scope is run-book 58-P2's proven one **on purpose**: one cell (`s2grid=4772924`), 2018-06-01 →
+07-01, one orbit track, `mosaic_days=10` (T=3) ≈ **22–26 GB**. The same ROI over Apr–Sep measured
+**387.7 GB** — a download is a whole-asset byte copy. Expect a poor CV score (43 fields, 7 classes,
+2 bands × 3 timestamps = 6 features): this proves the **pipeline**, not the science.
+Verified without running it: the switch logic executed for BOTH collections (adapter/SEQ parity
+asserts pass, both preflight gates satisfied, S1 → T=3), suite **1171 passed / 106 skipped**, ruff
+clean on the standard set, `docs_kwarg_sweep.py` 0 stale, all 34 cells parse.
+
+**THE NEXT TWO ACTIONS:**
+
+1. **Run the S1 notebook** — nothing about it has touched a network yet. Start by running cell 3
+   alone and checking it prints `collection = sentinel-1-rtc … roi = s2grid=4772924.geojson`.
+2. **Commit + push `main`** — ~28 commits ahead of `origin/main`, PLUS everything above is
+   **uncommitted** in the main checkout (`PROGRESS.md`, `RECIPES.md`, `demos/e2e_austria*.py`,
+   `docs/tutorial.md`, `notebooks/e2e_austria_aml.ipynb`, `notebooks/demo_model/my_adapter.py`,
+   and new `runbooks/scripts/docs_kwarg_sweep.py`). The stale remote also blocks self-service
+   worktrees: `EnterWorktree` branches from `origin/main` and would miss every P2 commit, so a
+   worktree must be made by hand from local `main` until the push happens.
+
+Then **spec 58 P3 (HLS)**.
 
 **Run-book 58-p2 outcome (AC15 + AC11 on real data).** Window A ran as
 `s2grid=4772924`, **2018-06-01 → 2018-07-01**, `mosaic_days=10` (T=3), one orbit track plus a
@@ -104,23 +158,19 @@ corrected to match; whether the verb needs an in-process preflight is new design
 implemented.
 
 See "Most recent entry" for what P2 built and the three bugs implementation itself found.
-**Next: the user runs `runbooks/58-p2-window-a.md` (AC15) — do not skip it**;
-P1's own re-download run-book found three real bugs that two review passes had missed. **Only
-after the run-book comes back green** does the standing practice apply: `--no-ff` merge
-`worktree-spec58-p2` into `main` and prune the worktree.
+`runbooks/58-p2-window-a.md` (AC15) **was run, 2026-09-12, and came back green** — and, as on P1's
+re-download, running it found what review had not (D18's Window A pairs an ROI with labels 2000 km
+away). The merge + prune followed.
 P1 merged to `main` 2026-09-05 (review found one real bug and two untested ACs); the
 re-download run-book ran **2026-09-07**, all steps green including the QGIS eyeball, and found
 **three more real bugs** that two review passes had missed. `main` is clean, no unmerged branches
-except `spike/rslearn` (intentional) and `worktree-spec58-p2` (P2, awaiting review). **`v0.1.0` is
-cut and pushed.** ⚠️ **`main` is ~14 commits AHEAD of `origin/main` — everything since P1 is
-unpushed**, and P2's merge will add one more.
+except `spike/rslearn` (intentional). **`v0.1.0` is
+cut and pushed.** ⚠️ **`main` is ~28 commits AHEAD of `origin/main` — everything since P1,
+including P2's merge, is unpushed.**
 
 1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Spec 58 P2 is reviewed and its run-book is green — it is ready to MERGE.** From the
-   MAIN checkout (not the worktree, which cannot check out `main`):
-   `git merge --no-ff worktree-spec58-p2`, then `git worktree remove
-   .claude/worktrees/spec58-p2` and `git branch -d worktree-spec58-p2`. Then **push `main`**
-   (still unpushed — the user's call).
+2. **Spec 58 P2 is merged (`795b117`) and its worktree pruned.** What is left from it:
+   **update `demos/` + the notebook** for P2 (item 1 above), and **push `main`** (the user's call).
 3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
    **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity
    measured ~117 GB against ~110 GB of headroom. `demos/e2e_austria.py` still requests B8A and
@@ -221,7 +271,7 @@ instruction above.
 | ~~**5**~~ | ~~**[#94](https://github.com/nikhilsrajan/fsd/issues/94)** — re-run the `PROGRESS.md` split~~ | **DONE 2026-09-03** — 1,737 lines moved verbatim to the archive; this file **19,970 → 1,762 words**; four defects retired, one of them a test that never ran | → **6**, now current |
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
-| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 IMPLEMENTED 2026-09-11** in `worktree-spec58-p2` @ `006da39` — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built), pytest **1127 passed / 103 skipped**, ruff clean, `runbooks/58-p2-window-a.md` written. Next: **Opus review**, then the run-book, then merge | → **9** |
+| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 DONE + MERGED 2026-09-12** (`795b117`, `--no-ff`, worktree pruned) — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built) + 2 more by review (`properties_filter` could not filter an int property; `build_datacube` enforced but never applied it), run-book **green incl. QGIS**, pytest **1169 passed / 104 skipped**, ruff clean. Left over: update `demos/` for P2; **P3 (HLS) is next** | → **9** |
 | **9** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
 
 **⚠️ The order changed again (user, 2026-09-04).** #93 was step 8 and CURRENT; the user promoted
@@ -255,9 +305,9 @@ serves it (D15), `catalog.filter_by_properties` (D9 part 1, the query-time filte
 (D9 part 3 — canonicalized, folded into the digest only when non-empty, so an S2 build's path is
 byte-identical to before P2, AC13). ACs 11-14 pass as pytest (`tests/test_spec58_p2.py`, 18 tests);
 full suite **1127 passed / 103 skipped** (baseline 1109/103 + these 18), ruff clean.
-`runbooks/58-p2-window-a.md` (AC15) is written, not run. **Next: Opus review, then the user runs
-the run-book, then `--no-ff` merge + prune** (standing practice; on P1's own re-download, the
-run-book found three real bugs two review passes had missed — do not skip it because review passed)._
+`runbooks/58-p2-window-a.md` (AC15) was written, **then run green 2026-09-12**; review found two
+more real bugs first, and the run-book itself exposed D18's wrong Window A pairing. Merged `--no-ff`
+as `795b117`, worktree pruned._
 
 _**Two real bugs found while implementing, not by review — both would have broken the very first
 real S1 build:**

@@ -1,6 +1,6 @@
 """Guards for the one notebook this repo tracks.
 
-`notebooks/00_build_images.ipynb` is the how-to for building the two AML node images, and
+`notebooks/build_images.ipynb` is the how-to for building the two AML node images, and
 is deliberately public (`.gitignore` un-ignores it explicitly). Every other notebook stays
 ignored precisely because notebooks leak: a saved output carries whatever the cell printed,
 and cloud tooling prints subscription ids, tenant ids, workspace URLs and home directories
@@ -29,7 +29,7 @@ NOTEBOOKS = REPO_ROOT / "notebooks"
 
 # Every notebook `.gitignore` explicitly un-ignores. Add a name here in the same commit
 # that un-ignores it, or it goes public unguarded.
-TRACKED_NOTEBOOKS = ["00_build_images.ipynb", "e2e_austria_aml.ipynb"]
+TRACKED_NOTEBOOKS = ["build_images.ipynb", "e2e_austria_aml.ipynb"]
 
 
 def _cells(name):
