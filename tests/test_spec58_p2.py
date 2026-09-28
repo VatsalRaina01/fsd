@@ -565,3 +565,111 @@ def test_api_download_rejects_properties_filter_for_cdse():
             collection=config.SATELLITE_S2L2A, max_tiles=1,
             properties_filter={"sat:orbit_state": "ascending"},
         )
+
+
+# --- the AML download path must carry collection + properties_filter (first real S1 AML
+# --- run, 2026-09-28: `run_aml_download` had neither, so MPC discovery fell back to its
+# --- sentinel-2-l2a default and raised "band 'vv' is not available on item S2B_MSIL2A_...") --
+
+_S1_FILTER = {"sat:orbit_state": "descending"}
+
+
+def test_discover_shard_rows_honours_collection_and_properties_filter(monkeypatch, tmp_path):
+    """Driver-side discovery for the AML fan-out must search the requested collection and
+    drop the unused orbit BEFORE rows are sharded -- the same narrowing `mpc.download` does."""
+    items = [_fake_s1_item("asc1", "ascending"), _fake_s1_item("desc1", "descending")]
+    seen = {}
+
+    def _search(*a, collection, **k):
+        seen["collection"] = collection
+        return items
+
+    monkeypatch.setattr(mpc, "_search_items_unsigned", _search)
+    roi = tmp_path / "roi.geojson"
+    gpd.GeoDataFrame({"geometry": [shapely.geometry.box(0, 0, 1, 1)]},
+                     crs="EPSG:4326").to_file(roi, driver="GeoJSON")
+
+    rows = mpc.discover_shard_rows(
+        str(roi), datetime.datetime(2018, 6, 1), datetime.datetime(2018, 7, 1),
+        ["vv", "vh"], str(tmp_path / "imagery"),
+        collection="sentinel-1-rtc", properties_filter=_S1_FILTER,
+    )
+
+    assert seen["collection"] == "sentinel-1-rtc"
+    assert {r["tile_id"] for r in rows} == {"desc1"}
+    assert sorted(r["band"] for r in rows) == ["vh", "vv"]
+    assert {r["collection"] for r in rows} == {"sentinel-1-rtc"}
+
+
+def test_run_aml_download_mpc_forwards_collection_and_properties_filter(monkeypatch):
+    from fsd.workflows import runners
+    seen = {}
+
+    def _discover(*a, **kw):
+        seen.update(kw)
+        return []   # nothing to download -> returns before any job is built
+
+    monkeypatch.setattr(runners._mpc, "discover_shard_rows", _discover)
+    monkeypatch.setattr(runners, "_import_aml_command", lambda: None)
+    monkeypatch.setattr(runners, "_import_command_job_limits", lambda: None)
+
+    runners.run_aml_download(
+        "memory://roi.geojson", "2018-06-01", "2018-07-01", ["vv", "vh"],
+        "memory://s1dl/data", "memory://s1dl/data/catalog.parquet",
+        source="mpc", cluster="c", environment="e:1", root="memory://s1dl/root",
+        identity_client_id="id", max_tiles=10, ml_client=object(),
+        collection="sentinel-1-rtc", properties_filter=_S1_FILTER,
+    )
+
+    assert seen["collection"] == "sentinel-1-rtc"
+    assert seen["properties_filter"] == _S1_FILTER
+
+
+def test_api_download_aml_forwards_collection_and_properties_filter(monkeypatch, tmp_path):
+    from fsd.workflows import runners
+    seen = {}
+    monkeypatch.setattr(runners, "run_aml_download", lambda **kw: seen.update(kw))
+
+    api.download(
+        "memory://roi.geojson", datetime.datetime(2018, 6, 1), datetime.datetime(2018, 7, 1),
+        ["vv", "vh"], str(tmp_path / "imagery"), source="mpc",
+        collection="sentinel-1-rtc", properties_filter=_S1_FILTER, max_tiles=10,
+        runner="aml", runner_kwargs={"cluster": "c", "environment": "e:1",
+                                     "root": "memory://r", "identity_client_id": "id"},
+    )
+
+    assert seen["collection"] == "sentinel-1-rtc"
+    assert seen["properties_filter"] == _S1_FILTER
+
+
+def test_create_training_data_forwards_properties_filter_to_its_download(monkeypatch, tmp_path):
+    """Without it the download pulls BOTH orbits -- whole ~3.7 GB scenes -- of which the
+    build can use only one."""
+    seen = {}
+
+    class _Stop(Exception):
+        pass
+
+    def _fake_download(**kw):
+        seen.update(kw)
+        raise _Stop
+
+    monkeypatch.setattr(api, "_download_verb", _fake_download)
+    polys = gpd.GeoDataFrame(
+        {"fid": [1, 2], "crop": ["a", "b"],
+         "geometry": [shapely.geometry.box(0, 0, 0.01, 0.01),
+                      shapely.geometry.box(0.02, 0, 0.03, 0.01)]},
+        crs="EPSG:4326",
+    )
+    with pytest.raises(_Stop):
+        api.create_training_data(
+            label_polygons=polys, catalog_filepath=str(tmp_path / "data" / "catalog.parquet"),
+            startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 1),
+            mosaic_days=10, bands=["vv", "vh"], id_col="fid", label_col="crop",
+            export_folderpath=str(tmp_path / "export"),
+            collection="sentinel-1-rtc", properties_filter=_S1_FILTER,
+            source="mpc", download=True, max_tiles=10,
+        )
+
+    assert seen["collection"] == "sentinel-1-rtc"
+    assert seen["properties_filter"] == _S1_FILTER

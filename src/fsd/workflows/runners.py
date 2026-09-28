@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Mapping, Sequence
 from importlib.resources import files
 
 import pandas as pd
@@ -1076,6 +1077,8 @@ def run_aml_download(
     root: str,
     identity_client_id: str,
     max_tiles: int,
+    collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
     vault_url: str | None = None,
     secret_name: str | None = None,
     creds_url: str | None = None,
@@ -1176,7 +1179,8 @@ def run_aml_download(
         )}
     else:
         rows = _mpc.discover_shard_rows(
-            roi, startdate, enddate, bands, dst_folderpath, max_cloudcover=max_cloudcover
+            roi, startdate, enddate, bands, dst_folderpath, max_cloudcover=max_cloudcover,
+            collection=collection, properties_filter=properties_filter,
         )
         n_discovered = len(rows)
 
