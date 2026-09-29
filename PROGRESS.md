@@ -17,11 +17,11 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
 
 **THE NEXT ACTIONS, in order:**
 
-1. **Make the main checkout's notebooks committable, then commit them** (user). They carry the
-   `extras=("local", "azure", "mpc")` fix but `e2e_austria_aml.ipynb` fails
-   `tests/test_notebooks.py` (saved outputs; hardcoded `AZ_ROOT`) — see "Most recent entry".
-2. **Push `main`** (the user's call) — 2 commits ahead of `origin/main` as of 2026-09-29 (the
-   bug-1 fix `19b5ad8` + merge `1ba1199`), plus this `PROGRESS.md` update. Until then
+1. **Commit the main checkout's notebooks** (user). They carry the
+   `extras=("local", "azure", "mpc")` fix and now pass `tests/test_notebooks.py` (cleared, and
+   blob paths are allowed since `2a70ada` — see "Most recent entry").
+2. **Push `main`** (the user's call) — 6 commits ahead of `origin/main` as of 2026-09-29 (the
+   bug-1 fix, this `PROGRESS.md` update, the notebook-guard change, and their merges). Until then
    `EnterWorktree` (which branches from `origin/main`) misses them, so make worktrees by hand:
    `git worktree add -b <branch> .claude/worktrees/<name> main`.
 3. **Spec the imagery archive layout** — CURRENT, THE ORDER step 9. Start from the memory note
@@ -198,11 +198,16 @@ run can pin the previously-built AML env versions instead of `ensure_environment
 ACR build on any `src/` change) and rebuild once at the end. It did not help here only because those
 images lacked `[local]` anyway._
 
-_**Uncommitted in the main checkout, and NOT committable as-is:** both notebooks carry the extras
-fix, but `e2e_austria_aml.ipynb` **fails `tests/test_notebooks.py` three ways** — saved outputs in
-12 cells (the clear was not saved), and a hardcoded `AZ_ROOT` storage-account URL in the config
-cell (trips both the storage-URL and the email-address identifier guards). Restore
-`AZ_ROOT = os.environ.get("AZ_ROOT")` + its assert, clear + save, re-run the test, then commit._
+_**Policy change (user, 2026-09-29): blob paths may be committed.** The S1 notebook hardcodes
+`AZ_ROOT` as a literal `abfss://…` path; the user ruled that storage account / container / blob
+paths are safe to expose (no access without a credential) and that environment variables for them
+are clunky — **no `AZ_ROOT` env var going forward**. `tests/test_notebooks.py` was changed to match
+(`2a70ada`): the storage-URL pattern is gone and the email pattern no longer mistakes
+`abfss://container@account…` for an address; GUIDs, emails, home dirs and rg/workspace/cluster
+names stay forbidden. ⚠️ This **contradicts the workspace `CLAUDE.md`** ("never copy [concrete
+infra] values into anything under `fsd/`") — that file is outside the repo and needs amending.
+Also learned: VS Code's "Clear All Outputs" keeps `execution_count`, which the guard rejects —
+RECIPES.md has the one-liner that clears both._
 
 _**Two directions assessed and parked in memory for their own sessions** (not in-repo yet):
 (a) **download path layout** — `imagery/` is flat per run, MPC and CDSE use different layouts and
