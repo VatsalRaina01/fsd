@@ -8,182 +8,38 @@ this — read [`docs/history.md`](docs/history.md).
 
 ## Resuming after a break — start here
 
-**Spec 58 P2 (`sentinel-1-rtc`) is DONE and MERGED into `main` (2026-09-12, merge commit
-`795b117`, `--no-ff`; worktree + branch pruned). Implemented, Opus-reviewed, and the AC15
-run-book ran green including the QGIS eyeball.** Suite **1169 passed / 104 skipped**, ruff clean
-(verified on the branch immediately before the merge, which was a fast-forward made into a merge
-commit — the merged tree is byte-identical to the verified one).
+**Spec 58 P1 + P2 are merged, and P2 is now proven on AML too** — `notebooks/e2e_austria_aml.ipynb`
+ran green end to end for `sentinel-1-rtc` on 2026-09-29 (see "Most recent entry": two real bugs,
+one fixed in `src/`, one in the notebooks' image extras). The P2 detail that used to sit here (the
+AC15 run-book outcome, the Opus review's findings, the S1 notebook prep, D18's wrong Window A) is
+archived verbatim as *"2026-09-12 — resume-block snapshot"* in
+[`docs/progress-archive.md`](docs/progress-archive.md).
 
-**The demos/notebook currency pass is DONE (2026-09-12, uncommitted).** It was expected to be
-documentation-only; it was **not**. Spec 58 P1 removed `scl_mask_classes` from four verbs, the
-demo `.py` files were updated at the time, and **four call sites were missed**: cells 7/20/32 of
-`notebooks/e2e_austria_aml.ipynb` and the `run_create_datacube` block in `docs/tutorial.md`. Each
-would have raised `TypeError` on its next real run, and no suite could see it — pytest never
-executes a notebook cell or a fenced block. All four are fixed, plus the P2 currency notes
-(`collection`/`properties_filter` on both demos, the whole-asset download-size caveat, and the
-stale "only Sentinel-2 L2A" claims in the notebook). `runbooks/scripts/docs_kwarg_sweep.py` is the
-new guard (RECIPES.md); it exits 1 naming any kwarg a doc passes that the live signature lacks.
-Suite **1171 passed / 106 skipped**, ruff clean.
+**THE NEXT ACTIONS, in order:**
 
-**`notebooks/e2e_austria_aml.ipynb` now RUNS SENTINEL-1 (2026-09-12, uncommitted, NOT YET RUN).**
-Asked for as "minimal changes"; it could not be one. Cell 3 gained a **`COLLECTION` switch**
-(`"sentinel-1-rtc"` | `"sentinel-2-l2a"`) that derives `BANDS`/`INFER_BANDS`/`ROI_FP`/`START,END`/
-`MOSAIC_DAYS`/`PROPERTIES_FILTER`/`MAX_CLOUDCOVER`/`TAG`; cells 5/7/11/14/17/20/29/32 read those
-instead of literals, so flipping the constant back gives a byte-identical S2 run. **Four things
-made it more than a rename, each of which would have failed the run:**
+1. **Make the main checkout's notebooks committable, then commit them** (user). They carry the
+   `extras=("local", "azure", "mpc")` fix but `e2e_austria_aml.ipynb` fails
+   `tests/test_notebooks.py` (saved outputs; hardcoded `AZ_ROOT`) — see "Most recent entry".
+2. **Push `main`** (the user's call) — 2 commits ahead of `origin/main` as of 2026-09-29 (the
+   bug-1 fix `19b5ad8` + merge `1ba1199`), plus this `PROGRESS.md` update. Until then
+   `EnterWorktree` (which branches from `origin/main`) misses them, so make worktrees by hand:
+   `git worktree add -b <branch> .claude/worktrees/<name> main`.
+3. **Spec the imagery archive layout** — CURRENT, THE ORDER step 9. Start from the memory note
+   `download-path-layout-research` (current-state facts, the proposal sketch, per-source prior art).
+   Spec-first: cross-validate, sign off, then implement.
 
-1. **One catalog file = ONE collection.** `TileCatalog.append` raises a declaration conflict if
-   S1 rows are appended to the S2 catalog, so an S1 run **cannot** re-enter the S2 archive —
-   `RESUME_RUN` is now `None` for S1 and it gets a fresh `ROOT`.
-2. **`max_cloudcover=70` RAISES for S1** (`supports_cloud_cover=False`, D6 gate) — now `None`.
-3. **`properties_filter` is MANDATORY for S1, not optional** — `mosaic_partition=
-   ("sat:orbit_state",)` + `partition_policy="raise"`, so a window spanning both passes refuses
-   to build. Pinned to `ascending`.
-4. **`modify.compute_bands` knows ONLY optical indices** (every one defined on B02–B12; there is
-   no SAR index). NDVI/SAVI cannot carry over — this is the one that would have produced a wrong
-   model rather than an error. S1's `SEQ` is `mask_invalid_and_interpolate` alone, `vv`/`vh`
-   straight to the RF. `demo_model/my_adapter.py` gained `CropRFS1(CropRF)` (5 lines: overrides
-   `required_bands` + `feature_sequence`); `rf_{TAG}.joblib` and a tagged `MODEL_NAME` keep an S1
-   fit from overwriting the S2 model or repointing its alias.
+Standing open items from P2 (not blocking): **D18 needs amending** (Window A is `s2grid=4772924`,
+not `476da24`, which has no labels within 47.7 km); D17's `nodata=-32768` is decorative (the build
+uses the catalog column's 0 — harmless, pinned by a test); AC11's raise is not catchable through
+`create_training_data(runner="local")` (it happens in a Snakemake subprocess). A windowed-read
+ingest would cut S1's whole-scene download cost (~3.7 GB/scene) by ~3 orders — not filed.
 
-Scope is run-book 58-P2's proven one **on purpose**: one cell (`s2grid=4772924`), 2018-06-01 →
-07-01, one orbit track, `mosaic_days=10` (T=3) ≈ **22–26 GB**. The same ROI over Apr–Sep measured
-**387.7 GB** — a download is a whole-asset byte copy. Expect a poor CV score (43 fields, 7 classes,
-2 bands × 3 timestamps = 6 features): this proves the **pipeline**, not the science.
-Verified without running it: the switch logic executed for BOTH collections (adapter/SEQ parity
-asserts pass, both preflight gates satisfied, S1 → T=3), suite **1171 passed / 106 skipped**, ruff
-clean on the standard set, `docs_kwarg_sweep.py` 0 stale, all 34 cells parse.
+Test archive: **184 granules / 67.2 GB / `B04,B08,SCL` from MPC**, radiometry correct, **B8A gone**
+(P3's AC17 needs it).
 
-**THE NEXT TWO ACTIONS:**
-
-1. **Run the S1 notebook** — nothing about it has touched a network yet. Start by running cell 3
-   alone and checking it prints `collection = sentinel-1-rtc … roi = s2grid=4772924.geojson`.
-2. **Commit + push `main`** — ~28 commits ahead of `origin/main`, PLUS everything above is
-   **uncommitted** in the main checkout (`PROGRESS.md`, `RECIPES.md`, `demos/e2e_austria*.py`,
-   `docs/tutorial.md`, `notebooks/e2e_austria_aml.ipynb`, `notebooks/demo_model/my_adapter.py`,
-   and new `runbooks/scripts/docs_kwarg_sweep.py`). The stale remote also blocks self-service
-   worktrees: `EnterWorktree` branches from `origin/main` and would miss every P2 commit, so a
-   worktree must be made by hand from local `main` until the push happens.
-
-Then **spec 58 P3 (HLS)**.
-
-**Run-book 58-p2 outcome (AC15 + AC11 on real data).** Window A ran as
-`s2grid=4772924`, **2018-06-01 → 2018-07-01**, `mosaic_days=10` (T=3), one orbit track plus a
-slice of the other. What it proved that no fixture could:
-
-- **AC11 fired for real.** A catalog spanning two orbit states raised with the full D9
-  enumeration: `('ascending', 146)` 5 acquisitions / 100% ROI coverage, `('descending', 22)` 2 /
-  100%. Enforced key, available combinations, counts, the reported-not-enforced
-  `sat:relative_orbit`, and coverage — all present.
-- **AC12/AC13 followed:** the same build with `properties_filter={'sat:orbit_state': 'ascending'}`
-  succeeded, into a **different window folder**, because the selection is part of `params_key`'s
-  digest (D9.3) — observed, not just asserted.
-- **AC14/D10 held:** every download ran with `PC_SDK_SUBSCRIPTION_KEY` unset. No 401/403/404.
-- **AC15:** S1 and S2 both produced training arrays through the same verb signature; QGIS showed
-  real backscatter texture.
-
-⚠️ **The download economics are the headline finding, and P3 must plan for them.** A transfer is
-a **whole-asset byte copy**, so a ~6 km cell pulls entire ~250 km scenes: **~3.7 GB per scene**,
-**387.7 GB for the full Apr–Sep window** against **44.6 GB free**. Even the smallest single orbit
-track (110.6 GB) was 2.5× the free space, so the window had to shrink to one month. That is why
-`download()` gained `properties_filter` (below). A windowed-read ingest would cut this by ~3
-orders of magnitude and is not filed yet.
-
-**The Opus review (2026-09-12) found two real bugs + one spec deviation** before the run, all
-fixed on the branch with tests:
-
-1. **`properties_filter` could not filter on `sat:relative_orbit`** — D9 names it as the other
-   property the generic filter serves, and it is an **int** in STAC. `list(146)` raised
-   `TypeError`; the string `"146"` matched **zero rows silently**, the exact failure D9.1 exists
-   to prevent. Fixed with `catalog.properties_filter_values` (scalar-tolerant, compares string
-   forms), used by BOTH the filter and the digest canonicalization so `146` and `"146"` are one
-   selection and one cube path.
-2. **`build_datacube` never applied `properties_filter`, only enforced.** D9: "The filter is
-   applied both there and upstream ... applying it twice is idempotent." It now takes
-   `properties_filter=` and filters before enforcing — which also unblocks the run-book's direct-
-   builder QGIS step, whose only recourse to a mixed-orbit raise had been to pre-filter by hand.
-3. Hardened `filter_by_properties` against a non-`str` `properties` cell (NaN → `json.loads`
-   `TypeError`).
-4. ⚠️ **The AC15 run-book could not have run at all — and spec 58 D18 is wrong** (found by the
-   user, 2026-09-12, not by the review). D18's Window A pairs `s2grid=476da24` with "the EuroCrops
-   labels", but **`austria_eurocrops_sampled_ethiopia_translated.geojson` is in ETHIOPIA**
-   (36.1–36.9 °E, 11.4–12.0 °N) despite the `austria_` prefix — it is the Austria fields
-   *translated* there — while `476da24` is in Austria (16.03–16.12 °E, 48.1 °N). Zero overlap, so
-   steps 3–5 would have produced no training data. **`AT_2018_TRAIN.geojson` does not rescue it
-   either: 0 of its 900 fields fall in `476da24`**, which lies outside `AT_ROI` entirely.
-   **Fix:** Window A moves to **`s2grid=4772924`**, generated by `roi_to_s2_grids(AT_ROI, 5km)`
-   and **committed to `notebooks/shapefiles/`** (with a `NOTICE` entry spelling out why the two
-   cells are not interchangeable) — per that folder's own rule, *"a test geometry that exists only
-   on one laptop is not a test geometry."* It is 100% inside T33UWP, fully covered by 21 archive
-   granules over 21 dates, with **43 labelled `AT_2018_TRAIN` fields inside** (`id_col="fid"`,
-   `label_col="crop"`, the pair `demos/e2e_austria.py` uses). The run-book reprojects (the file is
-   EPSG:31287) and clips the labels itself, and now reads every geometry from
-   `notebooks/shapefiles/` — in-repo, so it resolves from the main checkout *and* any worktree,
-   unlike the workspace-root `../shapefiles/` it used to use. **D18 needs amending to match — not
-   yet signed off.**
-   **Where `476da24` actually falls** (measured 2026-09-12, so nobody re-derives it): 16.034–16.116
-   °E, 48.106–48.156 °N, SE of Vienna — imagery is fine (entirely inside T33UWP, 21 granules), but
-   it is **47.7 km outside `AT_ROI`** and **50.2 km from the nearest labelled field**. It remains
-   the right cell for single-tile *imagery* tests that need no labels.
-
-5. **`download()` now takes `properties_filter` — the P2 scope cut, reversed by the first real
-   run** (2026-09-12). Window A step 1 matched **104 RTC tiles for ONE ~6 km cell**, and a
-   transfer is a **whole-asset byte copy** (`_transfer_and_stamp_one`), so that is 208 entire
-   ~250 km scenes — plausibly 100–200 GB on a disk that has been at 96%. The build can only ever
-   use ONE orbit state (D9 enforcement), so the rest is pure waste. The filter is applied
-   **before the `max_tiles` cap** (the cap guards bytes about to move, so it must count
-   post-filter tiles) and the cap's message now says whether a filter already narrowed. `cdse`
-   does not implement it and **says so at preflight** rather than ignoring it. This restores
-   D9's literal "every verb that carries `collection=` gains one parameter" — the P2 cut had
-   leaned on D9's closing sentence, and the run showed the cut was expensive.
-6. ⚠️ **Regression I introduced and then caught, worth remembering:** rewriting the run-book to
-   invoke the venv as `"$PY" -c "` silently dropped the whole file out of
-   `tests/test_docs.py::test_doc_snippets_use_real_fsd_attributes`, whose selector keyed on the
-   literal `python -c "`. No failure — the parametrized case just **vanished**, visible only as a
-   test count one lower than expected. That test's own comment records the same trap one spelling
-   earlier ("made this test vacuous on its first write"). Selector now matches any `<word> -c "`,
-   with two tests pinning it, one naming `58-p2-window-a.md` explicitly.
-
-**Two findings reported, NOT fixed — they need the user's call, see the review hand-off:**
-(a) **D17's declared `nodata=-32768` never reaches a cube.** The build takes nodata from the
-catalog COLUMN (`declaration.nodata` is only a fallback, per its own docstring) and
-`mpc._items_to_gdf` writes `config.NODATA` (0) for every collection. This is **harmless today** —
-`crop_tif` hands rasterio the build sentinel as the mask fill, so source `-32768` pixels are
-translated to 0 and excluded from the median (now pinned by a test) — and `NODATA = 0` is a
-workspace convention (`CLAUDE.md`). But the declared value is decorative, which D17's table does
-not say. (b) **AC11's raise is only a `ValueError` at the `build_datacube` level.** Through
-`create_training_data` with `runner="local"` the build runs in a **Snakemake subprocess**: the
-enumeration prints to the terminal but is not catchable by the caller. Run-book step 3a was
-corrected to match; whether the verb needs an in-process preflight is new design, so it was not
-implemented.
-
-See "Most recent entry" for what P2 built and the three bugs implementation itself found.
-`runbooks/58-p2-window-a.md` (AC15) **was run, 2026-09-12, and came back green** — and, as on P1's
-re-download, running it found what review had not (D18's Window A pairs an ROI with labels 2000 km
-away). The merge + prune followed.
-P1 merged to `main` 2026-09-05 (review found one real bug and two untested ACs); the
-re-download run-book ran **2026-09-07**, all steps green including the QGIS eyeball, and found
-**three more real bugs** that two review passes had missed. `main` is clean, no unmerged branches
-except `spike/rslearn` (intentional). **`v0.1.0` is
-cut and pushed.** ⚠️ **`main` is ~28 commits AHEAD of `origin/main` — everything since P1,
-including P2's merge, is unpushed.**
-
-1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
-2. **Spec 58 P2 is merged (`795b117`) and its worktree pruned.** What is left from it:
-   **update `demos/` + the notebook** for P2 (item 1 above), and **push `main`** (the user's call).
-3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
-   **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity
-   measured ~117 GB against ~110 GB of headroom. `demos/e2e_austria.py` still requests B8A and
-   would fetch ~28 GB more; spec 58 **P3's AC17 needs it** (`nir08` **is** B8A), so that pass is
-   deferred, not avoided. The radiometry is now **correct** (baseline 02.12 → offset 0, verified).
-4. `gh issue list` — the open work. Nothing here is blocked on a decision you have to remember.
-5. Otherwise pick from **THE ORDER** below, which is still sequenced.
-
-**Before trusting anything below, re-verify rather than assume.** Every dated claim was true when
-written. Cheap checks (on `worktree-spec58-p2` @ `006da39`, P2 implemented):
-`PYTHONPATH=src ~/NASA-Harvest/project/fetch_satdata_claude/fsd/.venv/bin/python -m pytest -q`
-(expect **1127 passed / 103 skipped**), `.venv/bin/ruff check src tests demos examples`,
-`git log --oneline -5`, `gh issue list`.
+**Before trusting anything below, re-verify rather than assume.** Cheap checks:
+`.venv/bin/python -m pytest -q` (expect **1173 passed / 104 skipped** on `main` @ `1ba1199` with a
+clean notebook — measured 1172 + the one notebook-outputs failure), `.venv/bin/ruff check src tests`, `git log --oneline -5`, `gh issue list`.
 A quiet stretch in the git log is a break, not a stall — do not read it as a problem to diagnose.
 
 ### ⚠️ Three obligations OUTSIDE this repo, still open
@@ -195,7 +51,9 @@ entry that gets archived:
    `fsd[azure,aml,mpc,grid]` and builds its image with `extras=("azure","mpc")`. Since **#80**,
    **both need `local` added** — the AML in-job entrypoints run the same Snakemake orchestration a
    laptop does, so without it the image builds fine and the dispatch fails ~30 min in. The image
-   digest changes, so **the images must be rebuilt**, not just re-tagged.
+   digest changes, so **the images must be rebuilt**, not just re-tagged. **Proven 2026-09-29:**
+   fsd's OWN notebooks had the same gap and the S1 build died exactly this way (0.05 s per shard,
+   not ~30 min in, because the cluster was already warm). `rise/` is still unfixed.
 2. **The workspace `CLAUDE.md` dev line still reads `pip install -e ".[dev]"`.** `pytest` passes on
    that, but `docs/tutorial.md` and any `runner="local"` work now need `.[dev,local]`. That file is
    outside the repo, so no commit here can fix it.
@@ -222,7 +80,7 @@ dependency rather than checked out. That run was the goal stated on day one, and
 | **Scale-out** | AML runner seam; download, build, flatten and inference all fan out. Reference run `20260729T132222Z`: 18.8 min, 8/8 steps, 97 jobs, 213 granules, 300 grid cells → 300 COGs + STAC + a merged map |
 | **Serving** | tier-1 (pre-styled XYZ) and tier-2 (pgSTAC + titiler-pgstac) both validated |
 | **Docs** | spec 41 P1–P7 done; `docs/history.md` written and approved 2026-09-02; `src/` changelog comments swept (#85, refs 1,187 → 92) |
-| **Current work** | **spec 58** — P1 landed and its re-download ran green 2026-09-07; **P2 (`sentinel-1-rtc`) implemented 2026-09-11 in `worktree-spec58-p2` @ `006da39`, awaiting Opus review + the AC15 run-book**. See THE ORDER below |
+| **Current work** | **Imagery archive layout spec** (THE ORDER step 9, chosen 2026-09-29). Spec 58 P1 + P2 merged; P2 proven on AML 2026-09-29 (S1 notebook green end to end). P3 (HLS) waits behind the layout spec |
 | **Release** | **`v0.1.0` cut 2026-09-04.** SemVer 0.y.z on purpose — the `Source` abstraction does not exist and S1 is coming, so the API will break |
 | **Deferred work** | **GitHub Issues**, number-aligned with the old `TODO.md` rows (`gh issue list`) |
 | **rslearn** | **decision CLOSED 2026-07-31** — no rslearn for download; rslearn-on-Azure is a separate, unstarted project. `spike/rslearn` stays unmerged |
@@ -271,8 +129,16 @@ instruction above.
 | ~~**5**~~ | ~~**[#94](https://github.com/nikhilsrajan/fsd/issues/94)** — re-run the `PROGRESS.md` split~~ | **DONE 2026-09-03** — 1,737 lines moved verbatim to the archive; this file **19,970 → 1,762 words**; four defects retired, one of them a test that never ran | → **6**, now current |
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
-| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 DONE + MERGED 2026-09-12** (`795b117`, `--no-ff`, worktree pruned) — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built) + 2 more by review (`properties_filter` could not filter an int property; `build_datacube` enforced but never applied it), run-book **green incl. QGIS**, pytest **1169 passed / 104 skipped**, ruff clean. Left over: update `demos/` for P2; **P3 (HLS) is next** | → **9** |
-| **9** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
+| **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 DONE + MERGED 2026-09-12** (`795b117`, `--no-ff`, worktree pruned) — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built) + 2 more by review (`properties_filter` could not filter an int property; `build_datacube` enforced but never applied it), run-book **green incl. QGIS**, pytest **1169 passed / 104 skipped**, ruff clean. `demos/` + notebook updated for P2; **S1 notebook ran green on AML 2026-09-29** (2 real bugs, see "Most recent entry"). **P3 (HLS) now waits behind step 9** | → **9** |
+| **9** | **Imagery archive layout** — **CURRENT (user, 2026-09-29).** `{archive}/{collection}/{acquisition_key}/`, same acquisition from MPC/CDSE collides deliberately (whole-granule replace-or-refuse, latest processing wins), `source` + `processing_version` catalog columns | **spec signed off**, then implemented + a re-download run-book. Start from memory note `download-path-layout-research` | → **10** |
+| **10** | **Contributor readiness** — CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff` | → spec 58 **P3 (HLS)** — order vs. step 10 not yet confirmed; P3 could be the first "real contribution" under the new process |
+| **11** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
+
+**⚠️ The order changed again (user, 2026-09-29).** After the S1 AML run the user chose the **archive
+layout** as the next task, ahead of P3 and of contributor readiness. Reasons (agreed in-session):
+it changes the on-disk format, cheapest while there is one user (no-back-compat policy = every
+archive re-downloads); contributor docs would otherwise teach a layout about to break; and P3/HLS
+hits the same one-catalog-per-collection wall. Recorded rather than silently re-sequenced.
 
 **⚠️ The order changed again (user, 2026-09-04).** #93 was step 8 and CURRENT; the user promoted
 **spec 58** ahead of it after the grilling session. Reason: spec 58 rewrites four verb signatures,
@@ -295,45 +161,57 @@ notebook that has just been validated.
 
 ## Most recent entry
 
-_Last updated: 2026-09-11 (**SPEC 58 P2 IMPLEMENTED — `sentinel-1-rtc` + `properties_filter`,
-in `worktree-spec58-p2` (`006da39`), not yet reviewed or merged.** A Sonnet session implemented
-against the amended spec (`6220256`): `fsd/collections/s1_rtc.py` (the D17 declaration), `mpc.py`
-serves it (D15), `catalog.filter_by_properties` (D9 part 1, the query-time filter),
-`builder._enforce_mosaic_partition` (D9 part 2, called unconditionally at the top of
-`build_datacube`), and `properties_filter=` threaded through `params_key`/`window_folder_segment`/
-`setup`/`build_shortfall_only`/`run_create_datacube` and every verb carrying `collection=`
-(D9 part 3 — canonicalized, folded into the digest only when non-empty, so an S2 build's path is
-byte-identical to before P2, AC13). ACs 11-14 pass as pytest (`tests/test_spec58_p2.py`, 18 tests);
-full suite **1127 passed / 103 skipped** (baseline 1109/103 + these 18), ruff clean.
-`runbooks/58-p2-window-a.md` (AC15) was written, **then run green 2026-09-12**; review found two
-more real bugs first, and the run-book itself exposed D18's wrong Window A pairing. Merged `--no-ff`
-as `795b117`, worktree pruned._
+_Last updated: 2026-09-29 (**THE S1 NOTEBOOK RAN GREEN ON AML, end to end — the first AML run of
+any kind since ~08-27.** `notebooks/e2e_austria_aml.ipynb` with `COLLECTION="sentinel-1-rtc"`
+(cell `s2grid=4772924`, 2018-06-01 → 07-01, ascending, T=3, 43 fields) ran download → datacube →
+training data → RF → verify_adapter → bundle → verify_image → deploy → inference, and
+`build_images.ipynb` ran alongside it. Run folder `demo-20260928T142634Z`. Getting there took **two
+real bugs, both invisible to the green suite**. Next task chosen: **the imagery archive layout
+spec** — see THE ORDER.)_
 
-_**Two real bugs found while implementing, not by review — both would have broken the very first
-real S1 build:**
-(1) **`mpc._items_to_gdf` called the S2-only `offset_for_item` unconditionally**, which raises
-`ValueError` for any item lacking S2's processing-baseline properties — every `sentinel-1-rtc`
-item has none. Fixed: skipped when the resolved declaration's `radiometry_bands == ()` (S1's case;
-`None` still means "every band, derive normally").
-(2) **`build_datacube` never actually implemented D11's `reference_band=None` case.** The P1 spec
-text says it means "bands are already grid-uniform, use the first requested band, run no resample
-step" — but the code compared `catalog_gdf["band"] == reference_band` where `reference_band` was
-still `None`, which matches nothing, leaving `ref_indices` empty and the merge failing on zero
-images. No P1 test built an actual cube with `reference_band=None`; every P1 AC checked the
-declaration/preflight shape, not a pixel. Fixed by falling back to `bands[0]` to build the
-reference grid when `reference_band` resolves to `None` — the resample step already no-ops
-correctly once every band shares one grid, so no separate "skip resample" branch was needed._
+_**Bug 1 — the AML download leg ignored `collection` and `properties_filter`** (fixed `19b5ad8`,
+merged `1ba1199`). `api.download`'s `runner="aml"` branch forwarded neither to
+`run_aml_download`, which had no such parameters, so driver-side MPC discovery
+(`discover_shard_rows`) fell back to its `sentinel-2-l2a` default and raised *"band 'vv' is not
+available on item S2B_MSIL2A_…"*. `create_training_data` also dropped `properties_filter` on its way
+to the download, which would have fetched BOTH orbits (~2× the bytes). P2's run-book proved S1 on
+the **local** runner only; the local branch forwarded both. Fix: forwarded at all three hops,
+`discover_shard_rows` applies the filter before rows exist (so `max_tiles` counts post-filter), four
+forwarding tests in `tests/test_spec58_p2.py`. The same class as 09-07's `max_concurrent` bug: **a
+kwarg added to a verb is only as real as its least-tested runner branch.** Checked in code: the
+build / verify_adapter / inference AML legs are NOT affected — all three go through
+`create_datacube.setup` on the driver, which filters and writes `declaration.json` for the nodes._
 
-_**A third, smaller bug, found by the fix above widening what `properties_filter=""` touches:**
-`create_datacube._dedupe_on_unit_identity` raised `TypeError: sequence item N: expected str
-instance, float found` once a legitimately-empty `properties_filter` round-tripped through CSV as
-NaN (the same empty-string-becomes-NaN footgun already documented for `bands`) and hit a pandas
-version where `.astype(str)` does not coerce that NaN to the literal string `"nan"`. Fixed with a
-`fillna("")` before the join, mirroring the existing fix pattern for `bands`._
+_**Bug 2 — the notebooks' node images had no Snakemake.** Every build shard died 0.05 s in:
+*"the Snakemake runner needs the optional '[local]' extra"*. #80 (09-04) moved `snakemake` to
+`[local]` and updated `docs/howto/build-the-images.md`, and THE ORDER row 6 below even says **"AML
+node images need `local` and must be rebuilt"** — but both notebooks' `ImageDefinition` still read
+`extras=("azure", "mpc")`, and no AML build had run since to notice. Fixed to
+`("local", "azure", "mpc")` in `build_images.ipynb` and `e2e_austria_aml.ipynb` (**uncommitted in
+the main checkout** — see below) and the images rebuilt. Downloads had worked only because download
+jobs never touch Snakemake. Also found: a failed shard's `_status/<k>.json` said only `"snakemake
+exited 1"` for the first diagnosis attempt — the real error needed the AML job log. Not filed yet._
 
-_**Decisions flagged rather than buried (per the P2 handoff's ask):** `download()` does NOT gain
-`properties_filter` in P2 — selection happens at build time
-(`create_training_data`/`run_inference`/`verify_adapter`), sufficient for Window A; download-time
-property filtering can follow once a concrete need appears. The D9 filter runs ONCE, in
-`create_datacube.setup` (query time); `build_datacube` only enforces on whatever rows it receives
-— it does not re-filter, since `setup`'s output is already scoped by the time a build sees it._
+_**Pinning the old images was sound, and is a reusable trick:** a fix that changes only driver-side
+code (`api.py`, `run_aml_download`, `discover_shard_rows`) leaves node behaviour identical, so the
+run can pin the previously-built AML env versions instead of `ensure_environment` (which STARTS an
+ACR build on any `src/` change) and rebuild once at the end. It did not help here only because those
+images lacked `[local]` anyway._
+
+_**Uncommitted in the main checkout, and NOT committable as-is:** both notebooks carry the extras
+fix, but `e2e_austria_aml.ipynb` **fails `tests/test_notebooks.py` three ways** — saved outputs in
+12 cells (the clear was not saved), and a hardcoded `AZ_ROOT` storage-account URL in the config
+cell (trips both the storage-URL and the email-address identifier guards). Restore
+`AZ_ROOT = os.environ.get("AZ_ROOT")` + its assert, clear + save, re-run the test, then commit._
+
+_**Two directions assessed and parked in memory for their own sessions** (not in-repo yet):
+(a) **download path layout** — `imagery/` is flat per run, MPC and CDSE use different layouts and
+ids for the same granule, one catalog file = one collection. Prior art (Landsat product-id split,
+Earth Search replace-on-same-id, ODC archive-not-overwrite, EODAG provider priority, STAC
+`processing:*`) supports `{archive}/{collection}/{acquisition_key}/`, whole-granule
+replace-or-refuse, latest processing wins, first-class `source` + `processing_version` columns.
+⚠️ Same acquisition ≠ same bytes (MPC's 2018 S2 is the 2020 reprocessing), so a naive collision
+would union bands from two processings under one row's `offset`. **(b) contributor readiness** —
+no CI, no in-repo `AGENTS.md`/`CONTRIBUTING.md`, spec/ADR numbering and `PROGRESS.md`/`CHANGES.md`
+are branch-conflict magnets. **A YAML collection registry was assessed and rejected for now**: a
+collection is already a ~40-line pure-data Python declaration; verifiability is the bottleneck._
