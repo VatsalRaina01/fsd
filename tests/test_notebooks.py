@@ -13,6 +13,12 @@ So the exception needs teeth. These tests are the reason the file can be tracked
   * no identifiers in the source -- the private values come from
     `~/.config/fsd/config.toml` (spec 54) at run time, never from the file itself.
 
+**Blob paths are the one exception (user, 2026-09-29).** A storage account, container or
+`abfss://` path may be written into a notebook directly: it grants nothing without a
+credential, and routing it through an environment variable was judged clunky. Everything
+else above stays forbidden -- GUIDs (subscription / tenant / client ids), email addresses,
+home directories, resource-group / workspace / cluster names.
+
 Synthetic and offline: this reads the checked-in JSON, it never runs a cell.
 """
 
@@ -81,14 +87,11 @@ def test_no_saved_outputs(name):
 _FORBIDDEN = {
     "an Azure GUID (subscription / tenant / client id)":
         r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
-    "an email address": r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b",
+    # The lookbehind skips a `container@account` that follows `abfss://` -- a blob path, which
+    # is allowed (see the module docstring), not an address.
+    "an email address": r"(?<![\w.+/-])[\w.+-]+@[\w-]+\.[\w.]{2,}\b",
     "a local home directory": r"/(?:Users|home)/[a-zA-Z0-9._-]+",
-    # `abfss://` alone is a generic URL scheme and appears legitimately in prose and in
-    # placeholder sample output (`run_root=abfss://.../runs/...`). What must never appear is
-    # a CONCRETE storage host: a real container@account, or the account-bearing hostname.
-    "a storage account URL": (
-        r"abfss://[^\s./@]+@|\.dfs\.core\.windows\.net|\.blob\.core\.windows\.net"
-    ),
+    # No storage-account pattern, on purpose: blob paths may be committed (user, 2026-09-29).
     "a concrete resource group or workspace name": r"\brg-[a-z0-9-]+|\bmlw-[a-z0-9-]+",
     "a concrete compute cluster name": r"\bcluster-[a-z0-9-]+",
 }
@@ -106,6 +109,20 @@ def test_file_carries_no_identifiers(what, pattern, name):
         f"notebooks/{name} hardcodes {what}: {hits}. "
         "Read it through fsd.config.load() instead."
     )
+
+
+def test_blob_paths_are_allowed_but_identifiers_are_not():
+    """Blob paths may be committed (user, 2026-09-29) -- and `abfss://container@account...`
+    is shaped like an email, which is how the email pattern used to flag every one of them.
+    Pin both halves so the allowance cannot quietly widen into letting a real email through."""
+    blob = '"AZ_ROOT = \\"abfss://data@myaccount.dfs.core.windows.net/me/demo-runs\\""'
+    blob_https = "https://myaccount.blob.core.windows.net/data/me/x.tif"
+    for text in (blob, blob_https):
+        for what, pattern in _FORBIDDEN.items():
+            assert not re.findall(pattern, text), f"{what} flagged a blob path: {text}"
+
+    assert re.findall(_FORBIDDEN["an email address"], "contact: someone@example.org")
+    assert re.findall(_FORBIDDEN["an email address"], '"author": "a.b+c@uni.edu"')
 
 
 @pytest.mark.parametrize("name", TRACKED_NOTEBOOKS)
