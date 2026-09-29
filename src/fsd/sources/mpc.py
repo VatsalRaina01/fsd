@@ -611,6 +611,7 @@ def discover_shard_rows(
     *,
     max_cloudcover: float | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    properties_filter: Mapping[str, str | Sequence[str]] | None = None,
 ) -> list[dict]:
     """Driver-side discovery for the AML fan-out: query MPC STAC
     (cheap, no bytes -- `_search_items_unsigned`, so no href carries a token yet)
@@ -625,6 +626,10 @@ def discover_shard_rows(
     fine here because discovery itself is driver-side (spec 58 D13's node-never-consults-
     a-registry rule targets the *build* path's collection-variant resolution; this is
     ingest, where the declaration is only artifact facts, not a user-choosable variant).
+
+    `properties_filter` narrows the tiles exactly as in `download()` above (spec 58 D9), and
+    here too it lands before any row exists, so `max_tiles` downstream counts only the tiles
+    that will actually transfer.
     """
     declaration = _collections.get(collection)
     roi_gdf = _roi_gdf(roi)
@@ -635,6 +640,7 @@ def discover_shard_rows(
         _items_to_gdf(items, collection=collection, declaration=declaration),
         roi_gdf, max_cloudcover,
     )
+    tiles = catalog_module.filter_by_properties(tiles, properties_filter)
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}
     kept_items = [it for it in items if it.id in tile_meta]
 

@@ -430,6 +430,7 @@ def download(
             roi=roi, startdate=startdate, enddate=enddate, bands=bands,
             dst_folderpath=dst_folderpath, catalog_filepath=catalog_filepath,
             source=source, max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog,
+            collection=collection, properties_filter=properties_filter,
             **(runner_kwargs or {}),
         )
         return catalog_filepath
@@ -722,6 +723,7 @@ def create_training_data(
         _download_verb(
             roi=shapefilepath, startdate=startdate, enddate=enddate, bands=bands,
             dst_folderpath=dst_folderpath, creds=creds, source=source, collection=collection,
+            properties_filter=properties_filter,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog,
             storage=storage, runner=runner, runner_kwargs=runner_kwargs,
         )
