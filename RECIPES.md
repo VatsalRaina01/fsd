@@ -1218,3 +1218,20 @@ Two traps it was built around, both worth keeping if it is ever rewritten: pair 
 fence with the next *opening* one, which shifted every block by one and reported a clean sweep on
 a file that had a stale call in it); and skip a snippet whose `ast.parse` fails rather than
 failing the run, since docs legitimately contain fragments.
+
+## Make a notebook pass `test_no_saved_outputs` (VS Code's "Clear All Outputs" is not enough)
+
+VS Code's **Clear All Outputs** empties `outputs` but **keeps every cell's `execution_count`**, and
+`tests/test_notebooks.py::test_no_saved_outputs` rejects either. Neither `nbconvert` nor
+`nbstripout` is in `.venv`, so this stdlib one-liner clears both, preserving key order and the
+1-space indent VS Code/Jupyter write (verified 2026-09-29: the diff touches only
+`execution_count` lines). **Close the notebook in VS Code first**, or its next save writes the
+in-memory counts back.
+
+```bash
+cd fsd
+python3 -c "import json,sys;p=sys.argv[1];nb=json.load(open(p));[c.update(outputs=[],execution_count=None) for c in nb['cells'] if c['cell_type']=='code'];open(p,'w').write(json.dumps(nb,indent=1,ensure_ascii=False)+'\n')" notebooks/e2e_austria_aml.ipynb
+.venv/bin/python -m pytest -q tests/test_notebooks.py
+```
+
+The durable fix is an `nbstripout` git filter / pre-commit hook — a contributor-readiness item.

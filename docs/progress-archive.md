@@ -3,8 +3,235 @@ status: historical
 summary: PROGRESS entries older than the current one, moved here verbatim — first on 2026-07-30 (spec 41 D12, 61 entries), again on 2026-09-03 (#94, covering 2026-09-03 back to 2026-08-20), again on 2026-09-05 (spec 58 draft entry, one block; and again the same day, the spec 58 P1 implementation entry); again on 2026-09-07 (the P1 review entry); again on 2026-09-11 (the re-download entry).
 ordering: NOT chronological end to end. The 2026-07-30 bulk is newest-first; a tail appended after it runs 08-20, 08-19, 07-31, 07-30 out of order; the 2026-09-03 block is newest-first again; the appends since 2026-09-05 are single blocks at the top, newest append first. Search this file, do not scroll it.
 headings: two forms — `## 2026-...` and `## <emoji> 2026-...` (✅ 🟡 ⭐). A bare `grep '^## 2026'` finds only some of them and will mis-split the file.
-coverage: complete through 2026-09-05 — but it was NOT before then. Until the #94 append, specs 48-53 and the whole notebook-usability sprint (2026-08-20 to 09-03) appeared zero times here, so this file was not the complete archaeology source its first summary claimed. docs/history.md is the narrative view; this is the raw log.
+coverage: complete through 2026-09-12 (the 2026-09-11 entry and a 2026-09-12 resume-block snapshot were moved in on 2026-09-29) — but it was NOT before then. Until the #94 append, specs 48-53 and the whole notebook-usability sprint (2026-08-20 to 09-03) appeared zero times here, so this file was not the complete archaeology source its first summary claimed. docs/history.md is the narrative view; this is the raw log.
 ---
+
+## 2026-09-12 — resume-block snapshot: P2 run-book outcome, Opus review findings, S1 notebook prep
+
+_Moved verbatim from PROGRESS.md's "Resuming after a break" section on 2026-09-29, when that section was rewritten for the S1 AML run._
+
+**Spec 58 P2 (`sentinel-1-rtc`) is DONE and MERGED into `main` (2026-09-12, merge commit
+`795b117`, `--no-ff`; worktree + branch pruned). Implemented, Opus-reviewed, and the AC15
+run-book ran green including the QGIS eyeball.** Suite **1169 passed / 104 skipped**, ruff clean
+(verified on the branch immediately before the merge, which was a fast-forward made into a merge
+commit — the merged tree is byte-identical to the verified one).
+
+**The demos/notebook currency pass is DONE (2026-09-12, uncommitted).** It was expected to be
+documentation-only; it was **not**. Spec 58 P1 removed `scl_mask_classes` from four verbs, the
+demo `.py` files were updated at the time, and **four call sites were missed**: cells 7/20/32 of
+`notebooks/e2e_austria_aml.ipynb` and the `run_create_datacube` block in `docs/tutorial.md`. Each
+would have raised `TypeError` on its next real run, and no suite could see it — pytest never
+executes a notebook cell or a fenced block. All four are fixed, plus the P2 currency notes
+(`collection`/`properties_filter` on both demos, the whole-asset download-size caveat, and the
+stale "only Sentinel-2 L2A" claims in the notebook). `runbooks/scripts/docs_kwarg_sweep.py` is the
+new guard (RECIPES.md); it exits 1 naming any kwarg a doc passes that the live signature lacks.
+Suite **1171 passed / 106 skipped**, ruff clean.
+
+**`notebooks/e2e_austria_aml.ipynb` now RUNS SENTINEL-1 (2026-09-12, uncommitted, NOT YET RUN).**
+Asked for as "minimal changes"; it could not be one. Cell 3 gained a **`COLLECTION` switch**
+(`"sentinel-1-rtc"` | `"sentinel-2-l2a"`) that derives `BANDS`/`INFER_BANDS`/`ROI_FP`/`START,END`/
+`MOSAIC_DAYS`/`PROPERTIES_FILTER`/`MAX_CLOUDCOVER`/`TAG`; cells 5/7/11/14/17/20/29/32 read those
+instead of literals, so flipping the constant back gives a byte-identical S2 run. **Four things
+made it more than a rename, each of which would have failed the run:**
+
+1. **One catalog file = ONE collection.** `TileCatalog.append` raises a declaration conflict if
+   S1 rows are appended to the S2 catalog, so an S1 run **cannot** re-enter the S2 archive —
+   `RESUME_RUN` is now `None` for S1 and it gets a fresh `ROOT`.
+2. **`max_cloudcover=70` RAISES for S1** (`supports_cloud_cover=False`, D6 gate) — now `None`.
+3. **`properties_filter` is MANDATORY for S1, not optional** — `mosaic_partition=
+   ("sat:orbit_state",)` + `partition_policy="raise"`, so a window spanning both passes refuses
+   to build. Pinned to `ascending`.
+4. **`modify.compute_bands` knows ONLY optical indices** (every one defined on B02–B12; there is
+   no SAR index). NDVI/SAVI cannot carry over — this is the one that would have produced a wrong
+   model rather than an error. S1's `SEQ` is `mask_invalid_and_interpolate` alone, `vv`/`vh`
+   straight to the RF. `demo_model/my_adapter.py` gained `CropRFS1(CropRF)` (5 lines: overrides
+   `required_bands` + `feature_sequence`); `rf_{TAG}.joblib` and a tagged `MODEL_NAME` keep an S1
+   fit from overwriting the S2 model or repointing its alias.
+
+Scope is run-book 58-P2's proven one **on purpose**: one cell (`s2grid=4772924`), 2018-06-01 →
+07-01, one orbit track, `mosaic_days=10` (T=3) ≈ **22–26 GB**. The same ROI over Apr–Sep measured
+**387.7 GB** — a download is a whole-asset byte copy. Expect a poor CV score (43 fields, 7 classes,
+2 bands × 3 timestamps = 6 features): this proves the **pipeline**, not the science.
+Verified without running it: the switch logic executed for BOTH collections (adapter/SEQ parity
+asserts pass, both preflight gates satisfied, S1 → T=3), suite **1171 passed / 106 skipped**, ruff
+clean on the standard set, `docs_kwarg_sweep.py` 0 stale, all 34 cells parse.
+
+**THE NEXT TWO ACTIONS:**
+
+1. **Run the S1 notebook** — nothing about it has touched a network yet. Start by running cell 3
+   alone and checking it prints `collection = sentinel-1-rtc … roi = s2grid=4772924.geojson`.
+2. **Commit + push `main`** — ~28 commits ahead of `origin/main`, PLUS everything above is
+   **uncommitted** in the main checkout (`PROGRESS.md`, `RECIPES.md`, `demos/e2e_austria*.py`,
+   `docs/tutorial.md`, `notebooks/e2e_austria_aml.ipynb`, `notebooks/demo_model/my_adapter.py`,
+   and new `runbooks/scripts/docs_kwarg_sweep.py`). The stale remote also blocks self-service
+   worktrees: `EnterWorktree` branches from `origin/main` and would miss every P2 commit, so a
+   worktree must be made by hand from local `main` until the push happens.
+
+Then **spec 58 P3 (HLS)**.
+
+**Run-book 58-p2 outcome (AC15 + AC11 on real data).** Window A ran as
+`s2grid=4772924`, **2018-06-01 → 2018-07-01**, `mosaic_days=10` (T=3), one orbit track plus a
+slice of the other. What it proved that no fixture could:
+
+- **AC11 fired for real.** A catalog spanning two orbit states raised with the full D9
+  enumeration: `('ascending', 146)` 5 acquisitions / 100% ROI coverage, `('descending', 22)` 2 /
+  100%. Enforced key, available combinations, counts, the reported-not-enforced
+  `sat:relative_orbit`, and coverage — all present.
+- **AC12/AC13 followed:** the same build with `properties_filter={'sat:orbit_state': 'ascending'}`
+  succeeded, into a **different window folder**, because the selection is part of `params_key`'s
+  digest (D9.3) — observed, not just asserted.
+- **AC14/D10 held:** every download ran with `PC_SDK_SUBSCRIPTION_KEY` unset. No 401/403/404.
+- **AC15:** S1 and S2 both produced training arrays through the same verb signature; QGIS showed
+  real backscatter texture.
+
+⚠️ **The download economics are the headline finding, and P3 must plan for them.** A transfer is
+a **whole-asset byte copy**, so a ~6 km cell pulls entire ~250 km scenes: **~3.7 GB per scene**,
+**387.7 GB for the full Apr–Sep window** against **44.6 GB free**. Even the smallest single orbit
+track (110.6 GB) was 2.5× the free space, so the window had to shrink to one month. That is why
+`download()` gained `properties_filter` (below). A windowed-read ingest would cut this by ~3
+orders of magnitude and is not filed yet.
+
+**The Opus review (2026-09-12) found two real bugs + one spec deviation** before the run, all
+fixed on the branch with tests:
+
+1. **`properties_filter` could not filter on `sat:relative_orbit`** — D9 names it as the other
+   property the generic filter serves, and it is an **int** in STAC. `list(146)` raised
+   `TypeError`; the string `"146"` matched **zero rows silently**, the exact failure D9.1 exists
+   to prevent. Fixed with `catalog.properties_filter_values` (scalar-tolerant, compares string
+   forms), used by BOTH the filter and the digest canonicalization so `146` and `"146"` are one
+   selection and one cube path.
+2. **`build_datacube` never applied `properties_filter`, only enforced.** D9: "The filter is
+   applied both there and upstream ... applying it twice is idempotent." It now takes
+   `properties_filter=` and filters before enforcing — which also unblocks the run-book's direct-
+   builder QGIS step, whose only recourse to a mixed-orbit raise had been to pre-filter by hand.
+3. Hardened `filter_by_properties` against a non-`str` `properties` cell (NaN → `json.loads`
+   `TypeError`).
+4. ⚠️ **The AC15 run-book could not have run at all — and spec 58 D18 is wrong** (found by the
+   user, 2026-09-12, not by the review). D18's Window A pairs `s2grid=476da24` with "the EuroCrops
+   labels", but **`austria_eurocrops_sampled_ethiopia_translated.geojson` is in ETHIOPIA**
+   (36.1–36.9 °E, 11.4–12.0 °N) despite the `austria_` prefix — it is the Austria fields
+   *translated* there — while `476da24` is in Austria (16.03–16.12 °E, 48.1 °N). Zero overlap, so
+   steps 3–5 would have produced no training data. **`AT_2018_TRAIN.geojson` does not rescue it
+   either: 0 of its 900 fields fall in `476da24`**, which lies outside `AT_ROI` entirely.
+   **Fix:** Window A moves to **`s2grid=4772924`**, generated by `roi_to_s2_grids(AT_ROI, 5km)`
+   and **committed to `notebooks/shapefiles/`** (with a `NOTICE` entry spelling out why the two
+   cells are not interchangeable) — per that folder's own rule, *"a test geometry that exists only
+   on one laptop is not a test geometry."* It is 100% inside T33UWP, fully covered by 21 archive
+   granules over 21 dates, with **43 labelled `AT_2018_TRAIN` fields inside** (`id_col="fid"`,
+   `label_col="crop"`, the pair `demos/e2e_austria.py` uses). The run-book reprojects (the file is
+   EPSG:31287) and clips the labels itself, and now reads every geometry from
+   `notebooks/shapefiles/` — in-repo, so it resolves from the main checkout *and* any worktree,
+   unlike the workspace-root `../shapefiles/` it used to use. **D18 needs amending to match — not
+   yet signed off.**
+   **Where `476da24` actually falls** (measured 2026-09-12, so nobody re-derives it): 16.034–16.116
+   °E, 48.106–48.156 °N, SE of Vienna — imagery is fine (entirely inside T33UWP, 21 granules), but
+   it is **47.7 km outside `AT_ROI`** and **50.2 km from the nearest labelled field**. It remains
+   the right cell for single-tile *imagery* tests that need no labels.
+
+5. **`download()` now takes `properties_filter` — the P2 scope cut, reversed by the first real
+   run** (2026-09-12). Window A step 1 matched **104 RTC tiles for ONE ~6 km cell**, and a
+   transfer is a **whole-asset byte copy** (`_transfer_and_stamp_one`), so that is 208 entire
+   ~250 km scenes — plausibly 100–200 GB on a disk that has been at 96%. The build can only ever
+   use ONE orbit state (D9 enforcement), so the rest is pure waste. The filter is applied
+   **before the `max_tiles` cap** (the cap guards bytes about to move, so it must count
+   post-filter tiles) and the cap's message now says whether a filter already narrowed. `cdse`
+   does not implement it and **says so at preflight** rather than ignoring it. This restores
+   D9's literal "every verb that carries `collection=` gains one parameter" — the P2 cut had
+   leaned on D9's closing sentence, and the run showed the cut was expensive.
+6. ⚠️ **Regression I introduced and then caught, worth remembering:** rewriting the run-book to
+   invoke the venv as `"$PY" -c "` silently dropped the whole file out of
+   `tests/test_docs.py::test_doc_snippets_use_real_fsd_attributes`, whose selector keyed on the
+   literal `python -c "`. No failure — the parametrized case just **vanished**, visible only as a
+   test count one lower than expected. That test's own comment records the same trap one spelling
+   earlier ("made this test vacuous on its first write"). Selector now matches any `<word> -c "`,
+   with two tests pinning it, one naming `58-p2-window-a.md` explicitly.
+
+**Two findings reported, NOT fixed — they need the user's call, see the review hand-off:**
+(a) **D17's declared `nodata=-32768` never reaches a cube.** The build takes nodata from the
+catalog COLUMN (`declaration.nodata` is only a fallback, per its own docstring) and
+`mpc._items_to_gdf` writes `config.NODATA` (0) for every collection. This is **harmless today** —
+`crop_tif` hands rasterio the build sentinel as the mask fill, so source `-32768` pixels are
+translated to 0 and excluded from the median (now pinned by a test) — and `NODATA = 0` is a
+workspace convention (`CLAUDE.md`). But the declared value is decorative, which D17's table does
+not say. (b) **AC11's raise is only a `ValueError` at the `build_datacube` level.** Through
+`create_training_data` with `runner="local"` the build runs in a **Snakemake subprocess**: the
+enumeration prints to the terminal but is not catchable by the caller. Run-book step 3a was
+corrected to match; whether the verb needs an in-process preflight is new design, so it was not
+implemented.
+
+See "Most recent entry" for what P2 built and the three bugs implementation itself found.
+`runbooks/58-p2-window-a.md` (AC15) **was run, 2026-09-12, and came back green** — and, as on P1's
+re-download, running it found what review had not (D18's Window A pairs an ROI with labels 2000 km
+away). The merge + prune followed.
+P1 merged to `main` 2026-09-05 (review found one real bug and two untested ACs); the
+re-download run-book ran **2026-09-07**, all steps green including the QGIS eyeball, and found
+**three more real bugs** that two review passes had missed. `main` is clean, no unmerged branches
+except `spike/rslearn` (intentional). **`v0.1.0` is
+cut and pushed.** ⚠️ **`main` is ~28 commits AHEAD of `origin/main` — everything since P1,
+including P2's merge, is unpushed.**
+
+1. Read this file top to bottom. It is ~2k words by design; it is the whole picture.
+2. **Spec 58 P2 is merged (`795b117`) and its worktree pruned.** What is left from it:
+   **update `demos/` + the notebook** for P2 (item 1 above), and **push `main`** (the user's call).
+3. ⚠️ **The test archive changed shape**: it is **184 granules / 67.2 GB / `B04,B08,SCL`** from
+   **MPC** (not the old 207-granule, 74 GB, four-band CDSE one). **B8A is gone** — full fidelity
+   measured ~117 GB against ~110 GB of headroom. `demos/e2e_austria.py` still requests B8A and
+   would fetch ~28 GB more; spec 58 **P3's AC17 needs it** (`nir08` **is** B8A), so that pass is
+   deferred, not avoided. The radiometry is now **correct** (baseline 02.12 → offset 0, verified).
+4. `gh issue list` — the open work. Nothing here is blocked on a decision you have to remember.
+5. Otherwise pick from **THE ORDER** below, which is still sequenced.
+
+**Before trusting anything below, re-verify rather than assume.** Every dated claim was true when
+written. Cheap checks (on `worktree-spec58-p2` @ `006da39`, P2 implemented):
+`PYTHONPATH=src ~/NASA-Harvest/project/fetch_satdata_claude/fsd/.venv/bin/python -m pytest -q`
+(expect **1127 passed / 103 skipped**), `.venv/bin/ruff check src tests demos examples`,
+`git log --oneline -5`, `gh issue list`.
+A quiet stretch in the git log is a break, not a stall — do not read it as a problem to diagnose.
+
+## 2026-09-11 — SPEC 58 P2 IMPLEMENTED: `sentinel-1-rtc` + `properties_filter`
+
+_Last updated: 2026-09-11 (**SPEC 58 P2 IMPLEMENTED — `sentinel-1-rtc` + `properties_filter`,
+in `worktree-spec58-p2` (`006da39`), not yet reviewed or merged.** A Sonnet session implemented
+against the amended spec (`6220256`): `fsd/collections/s1_rtc.py` (the D17 declaration), `mpc.py`
+serves it (D15), `catalog.filter_by_properties` (D9 part 1, the query-time filter),
+`builder._enforce_mosaic_partition` (D9 part 2, called unconditionally at the top of
+`build_datacube`), and `properties_filter=` threaded through `params_key`/`window_folder_segment`/
+`setup`/`build_shortfall_only`/`run_create_datacube` and every verb carrying `collection=`
+(D9 part 3 — canonicalized, folded into the digest only when non-empty, so an S2 build's path is
+byte-identical to before P2, AC13). ACs 11-14 pass as pytest (`tests/test_spec58_p2.py`, 18 tests);
+full suite **1127 passed / 103 skipped** (baseline 1109/103 + these 18), ruff clean.
+`runbooks/58-p2-window-a.md` (AC15) was written, **then run green 2026-09-12**; review found two
+more real bugs first, and the run-book itself exposed D18's wrong Window A pairing. Merged `--no-ff`
+as `795b117`, worktree pruned._
+
+_**Two real bugs found while implementing, not by review — both would have broken the very first
+real S1 build:**
+(1) **`mpc._items_to_gdf` called the S2-only `offset_for_item` unconditionally**, which raises
+`ValueError` for any item lacking S2's processing-baseline properties — every `sentinel-1-rtc`
+item has none. Fixed: skipped when the resolved declaration's `radiometry_bands == ()` (S1's case;
+`None` still means "every band, derive normally").
+(2) **`build_datacube` never actually implemented D11's `reference_band=None` case.** The P1 spec
+text says it means "bands are already grid-uniform, use the first requested band, run no resample
+step" — but the code compared `catalog_gdf["band"] == reference_band` where `reference_band` was
+still `None`, which matches nothing, leaving `ref_indices` empty and the merge failing on zero
+images. No P1 test built an actual cube with `reference_band=None`; every P1 AC checked the
+declaration/preflight shape, not a pixel. Fixed by falling back to `bands[0]` to build the
+reference grid when `reference_band` resolves to `None` — the resample step already no-ops
+correctly once every band shares one grid, so no separate "skip resample" branch was needed._
+
+_**A third, smaller bug, found by the fix above widening what `properties_filter=""` touches:**
+`create_datacube._dedupe_on_unit_identity` raised `TypeError: sequence item N: expected str
+instance, float found` once a legitimately-empty `properties_filter` round-tripped through CSV as
+NaN (the same empty-string-becomes-NaN footgun already documented for `bands`) and hit a pandas
+version where `.astype(str)` does not coerce that NaN to the literal string `"nan"`. Fixed with a
+`fillna("")` before the join, mirroring the existing fix pattern for `bands`._
+
+_**Decisions flagged rather than buried (per the P2 handoff's ask):** `download()` does NOT gain
+`properties_filter` in P2 — selection happens at build time
+(`create_training_data`/`run_inference`/`verify_adapter`), sufficient for Window A; download-time
+property filtering can follow once a concrete need appears. The D9 filter runs ONCE, in
+`create_datacube.setup` (query time); `build_datacube` only enforces on whatever rows it receives
+— it does not re-filter, since `setup`'s output is already scoped by the time a build sees it._
 
 ## 2026-09-07 — THE AUSTRIA ARCHIVE IS RE-INGESTED; three real bugs from run-book 58
 
