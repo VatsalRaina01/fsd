@@ -426,6 +426,11 @@ full Austria re-download.
     silent pass.
 21. Visual QGIS check of one S2 and one S1 cube from the new layout (per `CLAUDE.md`).
 
+**P2 Window A result (2026-09-30, `runbooks/59-p2-window-a.ipynb`): AC 18–21 green.** AC 20: a
+blob upload killed 1.5 s in left **no blob** under the final name (observed once, at one delay; the
+mechanism was not examined), so D10's remote leg needs no follow-up. AC 19's D7 line was not captured on the real
+run (never asserted; AC 17's tests cover it).
+
 ## 6. Risks
 
 - **The re-download is the long pole**, again (67.2 GB S2 + S1 scenes at ~3.7 GB each). P1 is

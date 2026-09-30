@@ -17,13 +17,9 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
 
 **THE NEXT ACTIONS, in order:**
 
-1. **Commit the main checkout's notebooks** (user). They carry the
-   `extras=("local", "azure", "mpc")` fix and now pass `tests/test_notebooks.py` (cleared, and
-   blob paths are allowed since `2a70ada` — see "Most recent entry").
-2. **Push `main`** (the user's call) — 6 commits ahead of `origin/main` as of 2026-09-29 (the
-   bug-1 fix, this `PROGRESS.md` update, the notebook-guard change, and their merges). Until then
-   `EnterWorktree` (which branches from `origin/main`) misses them, so make worktrees by hand:
-   `git worktree add -b <branch> .claude/worktrees/<name> main`.
+1. ~~Commit the main checkout's notebooks~~ — **done**; the main checkout is clean.
+2. ~~Push `main`~~ — **done** (pushed at `d8aa8dd`, 0 ahead of `origin/main`), so `EnterWorktree`
+   branches from a current base again.
 3. **[Spec 59](specs/59-imagery-archive-layout.md) P1 — REVIEWED + MERGED 2026-09-30** (`--no-ff`,
    branch `spec59-p1`: implementation `5918850` + review fixes `5d0f074`; find the merge with
    `git log --merges -1`). Opus review on two axes (Standards, Spec) since `16b88d7`. **One real bug
@@ -37,16 +33,29 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
    columns, `build_datacube` selecting over the rows it is handed (it has no window filter of its
    own), `processing` always in the flatten identity (as `properties_filter` already was).
    `pytest -q` **1218 passed / 105 skipped**, `ruff` clean.
-   **Pending (user):** push `main`, then `gh issue close 74` citing the merge hash (not closed yet:
-   the hash would not resolve on GitHub before the push).
-4. **Spec 59 P2:** the re-download run-book + D12's notebook/doc repointing (Austria S2 + the S1
+   Pushed 2026-09-30; **#74 auto-closed on the push** (10:06Z).
+4. **Spec 59 P2:** run-book is now a **notebook** — [`runbooks/59-p2-window-a.ipynb`](runbooks/59-p2-window-a.ipynb)
+   — **RAN GREEN 2026-09-30** (AC 18–21), merged to `main`. All 19 cells ran without error; archive
+   **10.68 GB / 25 files** (S2 6 MPC granules + 1 CDSE × B04,B08,SCL; S1 2 scenes × vv,vh); repeat
+   fetched nothing; the CDSE 05.00 copy of 2018-06-20 made `processing=None` refuse and `"latest"`
+   use it over MPC's 02.12; local kill left only `.stage`, re-run published a stamped B04; **blob
+   mid-put kill left NO blob under the final name** (AC 20's remote leg: nothing to file); QGIS
+   S2 + S1 **ok** (user). Not captured: D7's printed warning line in step 3b (never asserted;
+   covered by P1's AC 17 tests; outputs were cleared before it was read). The Markdown + driver-script draft was
+   Opus-reviewed against `src/` (kill window → the single day 2018-06-05 because `max_tiles`
+   raises; S1 nodata −32768; 4b outcome classes; cell location 15.43 °E 48.51 °N, NW of Vienna),
+   then converted under **spec 24 amendment A1** (signed off 2026-09-30: run-books are readable
+   notebooks — plain asserts, no env vars, a Setup cell that checks the `.venv` kernel and loads
+   the notebook's own `src/`; `TEMPLATE.ipynb`; `tests/test_notebooks.py` now guards
+   `runbooks/*.ipynb`). **Next:** D12's notebook/doc repointing (Austria S2 + the S1
    blob imagery). Next spec after 59: **#101** (train-vs-inference processing guard).
    What P1 left for P2 on purpose: `docs/tutorial.md` and the committed
    `tests/data/tutorial/` fixture still use the pre-59 catalog (flat folders, no acquisition
    columns) -- `tests/test_tutorial_fixture.py` converts a per-test copy into
    `{root}/sentinel-2-l2a/catalog.parquet`; the tutorial's `catalog_filepath=` line will fail D5's
-   preflight until D12 repoints it. Notebooks untouched. Also unverified (spec §5 AC 20): whether a
-   blob mid-put kill leaves a partial blob visible under the final name -- the run-book checks it.
+   preflight until D12 repoints it. Notebooks untouched. The full Austria re-download (P2 part 2,
+   ~67 GB) needs `tests/outputs/demo_e2e/imagery` (63 GB, pre-59 layout, unreadable by `main`)
+   deleted first -- disk had 26 GB free on 2026-09-30.
    Implementation notes worth knowing: one shared selector `fsd/catalog/processing.py` serves
    `download` (D7) and the builds (D6); granule parsers live in `fsd/collections/{s2_l2a,s1_rtc,hls}.py`
    behind `collections/naming.py` (HLS has parsers but no declaration yet); the venv's editable
@@ -63,8 +72,8 @@ Test archive: **184 granules / 67.2 GB / `B04,B08,SCL` from MPC**, radiometry co
 (P3's AC17 needs it).
 
 **Before trusting anything below, re-verify rather than assume.** Cheap checks:
-`.venv/bin/python -m pytest -q` (expect **1173 passed / 104 skipped** on `main` @ `1ba1199` with a
-clean notebook — measured 1172 + the one notebook-outputs failure), `.venv/bin/ruff check src tests`, `git log --oneline -5`, `gh issue list`.
+`.venv/bin/python -m pytest -q` (expect **1235 passed / 105 skipped**, measured 2026-09-30 in the `spec59-p2` worktree (d8aa8dd + the run-book-notebook guards)
++ this run-book; P1's own entry recorded 1218 / 105), `.venv/bin/ruff check src tests`, `git log --oneline -5`, `gh issue list`.
 A quiet stretch in the git log is a break, not a stall — do not read it as a problem to diagnose.
 
 ### ⚠️ Three obligations OUTSIDE this repo, still open
