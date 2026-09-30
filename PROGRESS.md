@@ -24,9 +24,14 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
    bug-1 fix, this `PROGRESS.md` update, the notebook-guard change, and their merges). Until then
    `EnterWorktree` (which branches from `origin/main`) misses them, so make worktrees by hand:
    `git worktree add -b <branch> .claude/worktrees/<name> main`.
-3. **Spec the imagery archive layout** — CURRENT, THE ORDER step 9. Start from the memory note
-   `download-path-layout-research` (current-state facts, the proposal sketch, per-source prior art).
-   Spec-first: cross-validate, sign off, then implement.
+3. **Implement [spec 59](specs/59-imagery-archive-layout.md) P1** — CURRENT, THE ORDER step 9.
+   **SIGNED OFF 2026-09-30** (user). Grilled 2026-09-29 (D1–D12), amended before sign-off: D7
+   (`download` takes `processing=`, default `"latest"`) and D10 (the byte copy was already atomic —
+   the real #74 defect is stamping *after* the rename; fix = stamp-then-publish via `<dst>.stage`).
+   The archive is lossless (ADR 0032): folders are named by the *canonical granule name*, two
+   processings coexist, a build over both raises, `processing=` selects per acquisition. P1 is
+   network-free (Sonnet session, `/effort medium`, against §10's build order); then the P2
+   re-download run-book. Next spec after 59: **#101** (train-vs-inference processing guard).
 
 Standing open items from P2 (not blocking): **D18 needs amending** (Window A is `s2grid=4772924`,
 not `476da24`, which has no labels within 47.7 km); D17's `nodata=-32768` is decorative (the build
@@ -80,7 +85,7 @@ dependency rather than checked out. That run was the goal stated on day one, and
 | **Scale-out** | AML runner seam; download, build, flatten and inference all fan out. Reference run `20260729T132222Z`: 18.8 min, 8/8 steps, 97 jobs, 213 granules, 300 grid cells → 300 COGs + STAC + a merged map |
 | **Serving** | tier-1 (pre-styled XYZ) and tier-2 (pgSTAC + titiler-pgstac) both validated |
 | **Docs** | spec 41 P1–P7 done; `docs/history.md` written and approved 2026-09-02; `src/` changelog comments swept (#85, refs 1,187 → 92) |
-| **Current work** | **Imagery archive layout spec** (THE ORDER step 9, chosen 2026-09-29). Spec 58 P1 + P2 merged; P2 proven on AML 2026-09-29 (S1 notebook green end to end). P3 (HLS) waits behind the layout spec |
+| **Current work** | **Imagery archive layout — spec 59 signed off 2026-09-30, P1 implementation next** (THE ORDER step 9). Spec 58 P1 + P2 merged; P2 proven on AML 2026-09-29 (S1 notebook green end to end). P3 (HLS) waits behind the layout spec |
 | **Release** | **`v0.1.0` cut 2026-09-04.** SemVer 0.y.z on purpose — the `Source` abstraction does not exist and S1 is coming, so the API will break |
 | **Deferred work** | **GitHub Issues**, number-aligned with the old `TODO.md` rows (`gh issue list`) |
 | **rslearn** | **decision CLOSED 2026-07-31** — no rslearn for download; rslearn-on-Azure is a separate, unstarted project. `spike/rslearn` stays unmerged |
@@ -130,7 +135,7 @@ instruction above.
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
 | **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 DONE + MERGED 2026-09-12** (`795b117`, `--no-ff`, worktree pruned) — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built) + 2 more by review (`properties_filter` could not filter an int property; `build_datacube` enforced but never applied it), run-book **green incl. QGIS**, pytest **1169 passed / 104 skipped**, ruff clean. `demos/` + notebook updated for P2; **S1 notebook ran green on AML 2026-09-29** (2 real bugs, see "Most recent entry"). **P3 (HLS) now waits behind step 9** | → **9** |
-| **9** | **Imagery archive layout** — **CURRENT (user, 2026-09-29).** `{archive}/{collection}/{acquisition_key}/`, same acquisition from MPC/CDSE collides deliberately (whole-granule replace-or-refuse, latest processing wins), `source` + `processing_version` catalog columns | **spec signed off**, then implemented + a re-download run-book. Start from memory note `download-path-layout-research` | → **10** |
+| **9** | **Imagery archive layout — [spec 59](specs/59-imagery-archive-layout.md)** — **CURRENT (user, 2026-09-29).** `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`; lossless (ADR 0032): two processings coexist, a build over both raises, `processing=` selects per acquisition; `acquisition_key`/`processing_version`/`processing_datetime`/`source` columns; closes #74 | **spec SIGNED OFF 2026-09-30**; P1 implemented + reviewed, then the P2 re-download run-book | → **#101** spec (processing guard), then **10** |
 | **10** | **Contributor readiness** — CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff` | → spec 58 **P3 (HLS)** — order vs. step 10 not yet confirmed; P3 could be the first "real contribution" under the new process |
 | **11** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
 
