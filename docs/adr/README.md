@@ -41,3 +41,4 @@ home. The cited spec/date is the source of record.
 | [0029](0029-collections-declare-what-must-not-be-mosaicked.md) | A collection declares what must not be mosaicked together (`mosaic_partition`); S1 enforces `sat:orbit_state`, optical declares nothing | grilling 2026-09-04 |
 | [0030](0030-source-and-collection-are-orthogonal-axes.md) | Source (provider) and Collection (product) are two orthogonal axes; `SourceDeclaration` becomes `CollectionDeclaration` | grilling 2026-09-04 |
 | [0031](0031-collection-strings-resolve-on-the-driver.md) | A `collection=` string resolves on the driver; the resolved declaration travels to nodes as JSON | grilling 2026-09-04 |
+| [0032](0032-the-archive-is-lossless-duplicates-raise.md) | The imagery archive is lossless: two processings of one acquisition coexist, a build over both raises, nothing is replaced | spec 59 / grilling 2026-09-29 |

@@ -64,6 +64,44 @@ The catalog properties a Collection declares must hold a single value within one
 some products are harmonized for compositing and others are not.
 _Avoid_: orbit filter (that's the user-facing knob), grouping key.
 
+## Archive (spec 59, ADR 0032)
+
+**Archive**:
+The root a `download` writes into — `{root}/{collection}/YYYY/MM/DD/{granule}/{band}.tif`, one
+`catalog.parquet` per collection directory. Shared across runs; lossless (nothing is ever replaced).
+_Avoid_: imagery folder, download folder (both named one run's copy, which it no longer is), cache.
+
+**Granule**:
+One downloaded unit: one acquisition at one processing — one catalog row, one folder. For
+Sentinel-2 it covers one MGRS tile.
+_Avoid_: tile (ambiguous — see MGRS tile vs grid cell), product (in this glossary a Collection is
+never called a product), scene, item (that's the provider's STAC record, whose id may differ).
+
+**Canonical granule name**:
+A granule's provider-independent name, keeping its processing fields — for Sentinel-2 the ESA product
+name without `.SAFE` (`S2B_MSIL2A_20180918T100019_N0212_R122_T33UWP_20201009T023142`), whether MPC or
+CDSE served it. The folder name and the catalog `id`. Equal across sources exactly when the processing
+is the same.
+_Avoid_: item id (MPC's drops the baseline field), SAFE name.
+
+**Acquisition**:
+The physical observation — one platform, one sensing time, one footprint — independent of how often
+it was processed or who serves it. Several granules can share one.
+_Avoid_: scene, capture, date (many acquisitions share a date).
+
+**Acquisition key**:
+The canonical granule name minus its processing fields (`S2B_MSIL2A_20180918T100019_R122_T33UWP`).
+Stored as a catalog column; used only to **detect** that one acquisition has more than one processing
+in a build, never to name a folder.
+_Avoid_: dedup key (nothing is deduplicated by it), granule id.
+
+**Processing version**:
+Which processing produced a granule's bytes — S2 baseline `"05.00"`, HLS `"2.0"`; null where the
+provider publishes none (S1 RTC). Named after STAC `processing:version`; compared as a PEP 440
+version, which is what `processing=` specifiers (`">=04.00"`) select on — on `download` (what to
+fetch) and on the build verbs (what to use).
+_Avoid_: baseline (S2-only word), collection version, product version.
+
 ## Grids & work units
 
 **Grid cell** (a.k.a. S2 grid cell):
