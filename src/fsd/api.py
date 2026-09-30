@@ -45,6 +45,7 @@ from fsd.model.features import apply_features as _apply_features
 from fsd.model.features import resolve_aggregate as _resolve_aggregate
 from fsd.model.verify_image import verify_image as _verify_image
 from fsd.raster.cog import to_cog as _to_cog
+from fsd.sources._granules import collection_root
 from fsd.sources.cdse import SERVED_COLLECTIONS as _CDSE_SERVED_COLLECTIONS
 from fsd.sources.cdse import CdseCredentials
 from fsd.sources.cdse import download as _cdse_download
@@ -455,7 +456,8 @@ def download(
     # Spec 59 D5: `dst_folderpath` is the archive root; the catalog lives in the
     # collection's own directory.
     fs.makedirs(dst_folderpath)
-    catalog_filepath = os.path.join(dst_folderpath, collection, "catalog.parquet")
+    catalog_filepath = os.path.join(collection_root(dst_folderpath, collection),
+                                    "catalog.parquet")
     fs.makedirs(os.path.dirname(catalog_filepath))
 
     if runner == "aml":

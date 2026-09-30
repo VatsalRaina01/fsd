@@ -36,11 +36,18 @@ import shapely
 
 from fsd import collections as _collections
 from fsd import config
-from fsd.catalog import catalog as catalog_module
 from fsd.catalog import processing as processing_module
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.raster.cog import stamp_or_reencode
-from fsd.sources._granules import granule_columns, granule_folderpath, item_granule
+from fsd.sources._granules import (
+    granule_columns,
+    granule_folderpath,
+    item_granule,
+    report_download,
+    require_valid_processing,
+    select_granules,
+    surviving_items,
+)
 from fsd.sources._s2_radiometry import offset_for_item
 from fsd.sources.cdse import _finalize_catalog_gdf, _is_local_path, _roi_gdf
 from fsd.storage import fs
@@ -192,34 +199,6 @@ def _items_to_gdf(
     gdf["timestamp"] = pd.to_datetime(gdf["timestamp"], utc=True)
     gdf["processing_datetime"] = pd.to_datetime(gdf["processing_datetime"], utc=True)
     return gdf
-
-
-def _select_tiles(
-    tiles: gpd.GeoDataFrame, *, properties_filter, processing: str | None,
-) -> gpd.GeoDataFrame:
-    """`properties_filter`, then D7's per-acquisition `processing` selection -- both before
-    the `max_tiles` cap, so the cap counts what will actually transfer. Every skipped granule
-    is printed."""
-    tiles = catalog_module.filter_by_properties(tiles, properties_filter)
-    selection = processing_module.select_processing(tiles, processing)
-    processing_module.print_selection(
-        selection, prefix="[fsd.mpc.download]", processing=processing,
-    )
-    return selection.kept
-
-
-def _report_download(
-    catalog, tiles: gpd.GeoDataFrame, *, processing: str,
-) -> None:
-    """D7's post-download report: how many acquisitions this download touched, and whether
-    any now holds more than one processing in the archive."""
-    if len(tiles) == 0 or not fs.exists(catalog.filepath):
-        return
-    for line in processing_module.ambiguity_lines(
-        catalog.read(), set(tiles["acquisition_key"]), n_matched=len(tiles),
-        processing=processing, source=SOURCE,
-    ):
-        print(line, flush=True)
 
 
 def query_catalog(
@@ -539,7 +518,7 @@ def download(
     import time
 
     declaration = _collections.get(collection)
-    _require_valid_processing(processing, collection)
+    require_valid_processing(processing, collection)
 
     if _is_local_path(root_folderpath):
         fs.makedirs(root_folderpath, exist_ok=True)
@@ -561,7 +540,8 @@ def download(
     # Applied BEFORE the cap: `max_tiles` is a guardrail on bytes about to be moved, so it
     # must count the tiles this run will actually transfer, not the ones discovery saw.
     n_discovered = len(tiles)
-    tiles = _select_tiles(tiles, properties_filter=properties_filter, processing=processing)
+    tiles = select_granules(tiles, processing=processing, prefix="[fsd.mpc.download]",
+                           properties_filter=properties_filter)
 
     if len(tiles) > max_tiles:
         narrowed = ""
@@ -577,7 +557,7 @@ def download(
         )
 
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}
-    kept_items = _kept_items(items, tile_meta, collection)
+    kept_items = surviving_items(items, tile_meta, collection)
 
     work: list[tuple[str, str, str, str, int]] = []
     for it, tile_id in kept_items:
@@ -617,7 +597,7 @@ def download(
 
     _print_failure_summary(failures, total=len(work))
     successful = _append_downloaded(catalog, tile_meta, results, declaration)
-    _report_download(catalog, tiles, processing=processing)
+    report_download(catalog, tiles, processing=processing, source=SOURCE)
 
     return DownloadResult(
         successful_count=successful,
@@ -627,23 +607,6 @@ def download(
         elapsed_s=time.time() - start,
         failures=failures,
     )
-
-
-def _require_valid_processing(processing, collection: str) -> None:
-    """Source-level guard for `processing=` (spec 59 D7): the verbs preflight it, but a
-    direct `mpc.download` / `discover_shard_rows` caller must not get a silent no-op."""
-    errs = processing_module.processing_errors(
-        processing, collection=collection, allow_none=False,
-    )
-    if errs:
-        raise ValueError("; ".join(errs))
-
-
-def _kept_items(items, tile_meta: dict, collection: str) -> list[tuple]:
-    """`[(item, canonical_id), ...]` for the items whose canonical granule name survived
-    selection (the catalog `id` is the canonical name, not the provider's item id)."""
-    pairs = ((it, item_granule(collection, it).canonical_name) for it in items)
-    return [(it, tid) for it, tid in pairs if tid in tile_meta]
 
 
 # --- AML fan-out: driver-side discovery + per-shard download -----------------
@@ -694,7 +657,7 @@ def discover_shard_rows(
     four paths `processing=` must reach (spec 59 AC 15).
     """
     declaration = _collections.get(collection)
-    _require_valid_processing(processing, collection)
+    require_valid_processing(processing, collection)
     roi_gdf = _roi_gdf(roi)
     items = _search_items_unsigned(roi_gdf, startdate, enddate, max_cloudcover=max_cloudcover,
                                     collection=collection)
@@ -702,9 +665,10 @@ def discover_shard_rows(
         _items_to_gdf(items, collection=collection, declaration=declaration),
         roi_gdf, max_cloudcover,
     )
-    tiles = _select_tiles(tiles, properties_filter=properties_filter, processing=processing)
+    tiles = select_granules(tiles, processing=processing, prefix="[fsd.mpc.download]",
+                           properties_filter=properties_filter)
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}
-    kept_items = _kept_items(items, tile_meta, collection)
+    kept_items = surviving_items(items, tile_meta, collection)
 
     rows: list[dict] = []
     for it, tile_id in kept_items:

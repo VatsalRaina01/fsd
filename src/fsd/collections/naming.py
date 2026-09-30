@@ -29,8 +29,7 @@ __all__ = ["GranuleInfo", "granule_info", "publishes_version", "PARSERS"]
 PARSERS = {
     _s2_l2a.COLLECTION_ID: _s2_l2a,
     _s1_rtc.COLLECTION_ID: _s1_rtc,
-    "hls2-s30": _hls,
-    "hls2-l30": _hls,
+    **{collection_id: _hls for collection_id in _hls.COLLECTION_IDS},
 }
 
 

@@ -27,7 +27,7 @@ from fsd.catalog.declaration import S2_L2A_DECLARATION
 from fsd.collections import naming
 from fsd.datacube import builder
 from fsd.sources import cdse, mpc
-from fsd.sources._granules import granule_folderpath
+from fsd.sources._granules import granule_folderpath, select_granules
 from fsd.storage import fs
 from fsd.workflows import create_datacube, runners
 from fsd.workflows import stamp as _stamp
@@ -143,6 +143,14 @@ def test_ac4_hls_date_comes_from_the_id_not_the_stac_datetime(tmp_path):
     assert info.processing_version == "2.0"
     assert granule_folderpath(str(tmp_path), "hls2-s30", info) == str(
         tmp_path / "hls2-s30" / "2021" / "05" / "03" / "HLS.S30.T33UWP.2021123T235501.v2.0")
+
+
+def test_hls_day_of_year_out_of_range_raises_instead_of_rolling_over():
+    assert naming.granule_info("hls2-s30", "HLS.S30.T33UWP.2020366T100031.v2.0", {},
+                               None).acquisition_date == datetime.date(2020, 12, 31)   # leap
+    for doy in ("366", "000"):      # 2021 is not a leap year; there is no day 0
+        with pytest.raises(ValueError, match="day of year"):
+            naming.granule_info("hls2-s30", f"HLS.S30.T33UWP.2021{doy}T100031.v2.0", {}, None)
 
 
 def test_a_collection_without_a_parser_gets_the_any_other_row():
@@ -298,7 +306,7 @@ def test_ac7_a_specifier_on_sentinel1_raises_on_a_build_and_latest_does_not(tmp_
         mosaic_days=10, bands=["vv"], id_col="fid", export_folderpath=str(tmp_path / "out"),
         collection=S1,
     )
-    with pytest.raises(api.PreflightError, match="sentinel-1-rtc"):
+    with pytest.raises(api.PreflightError, match=r"sentinel-1-rtc.*publishes no processing"):
         api.create_training_data(**kw, processing=">=05.00")
     # "latest" passes the version preflight; it fails later, only for the missing catalog
     with pytest.raises(api.PreflightError, match="catalog_filepath does not exist"):
@@ -335,7 +343,8 @@ def test_ac9_cdse_keeps_the_later_of_two_processings_and_prints_the_skip(
     monkeypatch.setattr(cdse, "_search_items", lambda *a, **k: [old, new])
     got = cdse.query_catalog(_roi(), datetime.datetime(2018, 1, 1), datetime.datetime(2019, 1, 1))
     assert list(got["id"]) == [_canon(new)]
-    tiles = cdse._select_processing(_cdse_gdf([old, new]), "latest")
+    tiles = select_granules(_cdse_gdf([old, new]), processing="latest",
+                            prefix="[fsd.cdse.download]")
     assert list(tiles["id"]) == [_canon(new)]
     out = capsys.readouterr().out
     assert f"skipped {_canon(old)}" in out and "superseded" in out
@@ -470,6 +479,27 @@ def test_ac12_cdse_stamp_failure_leaves_no_tif_at_all(monkeypatch, tmp_path):
     assert not dst.exists() and not staging.exists() and not (tmp_path / "B04.tif.stage").exists()
 
 
+def test_ac12_cdse_rerun_after_a_stamp_failure_transfers_again(monkeypatch, tmp_path):
+    dst = tmp_path / "B04.tif"
+    transfers = []
+
+    def _fake_transfer(src, target, **kw):
+        transfers.append(target)
+        _write_cog(target)
+
+    monkeypatch.setattr(cdse.fs, "transfer", _fake_transfer)
+    real = cdse.stamp_or_reencode
+    monkeypatch.setattr(cdse, "stamp_or_reencode",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stamp died")))
+    ok, reason, _ = cdse._download_one("s3://eodata/x/B04.jp2", str(dst), {}, tries=1)
+    assert (ok, reason) == (False, "ConvertError") and not dst.exists()
+
+    monkeypatch.setattr(cdse, "stamp_or_reencode", real)
+    ok, reason, _ = cdse._download_one("s3://eodata/x/B04.jp2", str(dst), {}, tries=1)
+    assert (ok, reason) == (True, "ok") and len(transfers) == 2           # transferred AGAIN
+    assert _tags(dst)[2] == config.NODATA                                 # and stamped
+
+
 def test_ac12_cdse_publishes_a_stamped_file(tmp_path):
     staging, dst = tmp_path / "B04.tif.src.jp2", tmp_path / "B04.tif"
     _write_cog(staging)
@@ -528,7 +558,6 @@ def test_ac13_a_catalog_without_the_acquisition_columns_raises_naming_them(tmp_p
 
 
 def test_ac14_a_cube_records_ids_versions_and_sources():
-    gdf = TileCatalog.__new__(TileCatalog)   # noqa: F841  (no file needed)
     flat = pd.DataFrame({
         "id": ["a", "a", "b"], "collection": [S2] * 3,
         "processing_version": ["02.12", "02.12", "05.00"], "source": ["mpc", "mpc", "cdse,mpc"],
@@ -694,6 +723,31 @@ def test_ac15_mpc_aml_driver_side_discovery_selects_and_the_verb_forwards(monkey
         environment="e:1", root="memory://p/root", identity_client_id="i", max_tiles=10,
         ml_client=object(), processing=">=05.00")
     assert got["processing"] == ">=05.00"
+
+
+def test_mpc_aml_shard_csv_round_trip_keeps_processing_version_a_string(monkeypatch, tmp_path):
+    """Review finding: the shard CSV round trip read "05.00" back as the float 5.0, so an AML
+    download into an archive a local download already wrote failed the parquet append, and
+    `properties_filter={"processing_version": "05.00"}` never matched (D8: a normalized string)."""
+    from fsd.workflows import download as download_workflow
+
+    root = tmp_path / "archive"
+    _mpc_download(monkeypatch, tmp_path, [A_OLD], max_tiles=10)     # local: "02.12", a string
+    monkeypatch.setattr(mpc, "_search_items_unsigned", lambda *a, **k: [A_NEW])
+    rows = mpc.discover_shard_rows(
+        _roi(), datetime.datetime(2018, 9, 1), datetime.datetime(2018, 10, 1), ["B04"],
+        str(root))
+    shard_url = str(tmp_path / "shards" / "0.csv")
+    with fs.open(shard_url, "w") as f:                          # as runners writes it
+        pd.DataFrame(rows).to_csv(f, index=False)
+
+    catalog = str(root / S2 / "catalog.parquet")
+    download_workflow.run_shard(shard_url=shard_url, dst=str(root), catalog=catalog,
+                                status_url=str(tmp_path / "_status" / "0.json"))
+
+    gdf = TileCatalog(catalog).read()
+    assert sorted(gdf["processing_version"]) == ["02.12", "05.00"]
+    assert len(filter_by_properties(gdf, {"processing_version": "05.00"})) == 1
 
 
 def test_ac15_cdse_aml_carries_the_specifier_on_the_node_command_line(monkeypatch):

@@ -10,9 +10,15 @@ from __future__ import annotations
 
 import os
 
+from fsd.catalog import catalog as catalog_module
+from fsd.catalog import processing as processing_module
 from fsd.collections.naming import GranuleInfo, granule_info
+from fsd.storage import fs
 
-__all__ = ["item_granule", "granule_folderpath", "granule_columns", "collection_root"]
+__all__ = [
+    "item_granule", "granule_folderpath", "granule_columns", "collection_root",
+    "require_valid_processing", "select_granules", "surviving_items", "report_download",
+]
 
 
 def item_granule(collection: str, item) -> GranuleInfo:
@@ -42,3 +48,46 @@ def granule_columns(info: GranuleInfo, *, source: str) -> dict:
         "processing_datetime": info.processing_datetime,
         "source": source,
     }
+
+
+# --- download(processing=): the source-side half of spec 59 D7 ----------------------------
+
+
+def require_valid_processing(processing, collection: str) -> None:
+    """Source-level guard for `processing=` (D7): the verbs preflight it, but a direct
+    `mpc.download` / `discover_shard_rows` / `cdse.download` caller must not get a silent
+    no-op."""
+    errs = processing_module.processing_errors(
+        processing, collection=collection, allow_none=False,
+    )
+    if errs:
+        raise ValueError("; ".join(errs))
+
+
+def select_granules(granules, *, processing: str, prefix: str, properties_filter=None):
+    """`properties_filter`, then D7's per-acquisition `processing` selection over one
+    provider's search results -- both before the `max_tiles` cap, so the cap counts what
+    will actually transfer. Every skipped granule is printed under `prefix`."""
+    granules = catalog_module.filter_by_properties(granules, properties_filter)
+    selection = processing_module.select_processing(granules, processing)
+    processing_module.print_selection(selection, prefix=prefix, processing=processing)
+    return selection.kept
+
+
+def surviving_items(items, granule_ids, collection: str) -> list[tuple]:
+    """`[(item, canonical_name), ...]` for the items whose canonical granule name survived
+    selection (the catalog `id` is the canonical name, not the provider's item id)."""
+    pairs = ((it, item_granule(collection, it).canonical_name) for it in items)
+    return [(it, name) for it, name in pairs if name in granule_ids]
+
+
+def report_download(catalog, granules, *, processing: str, source: str) -> None:
+    """D7's post-download report: how many acquisitions this download touched, and whether
+    any now holds more than one processing in the archive."""
+    if len(granules) == 0 or not fs.exists(catalog.filepath):
+        return
+    for line in processing_module.ambiguity_lines(
+        catalog.read(), set(granules["acquisition_key"]), n_matched=len(granules),
+        processing=processing, source=source,
+    ):
+        print(line, flush=True)

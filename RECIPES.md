@@ -686,6 +686,17 @@ with `python -c "import fsd; print(fsd.__file__)"` before trusting the run.
   run that one test in the repo checkout with the repo venv (no `PYTHONPATH`), where it passes.
   Any *other* failure is real.
 
+**Worktree with no `.venv` of its own** (the common case for a Claude-made worktree; 2026-09-30,
+spec 59 P1 review): run the repo venv directly and let pytest put the worktree's `src` first —
+
+```bash
+cd "$WT" && "$REPO/.venv/bin/python" -m pytest -o pythonpath=src -q
+```
+
+The repo venv's editable install points at the MAIN checkout's `src`; `-o pythonpath=src` prepends
+the worktree's, so `fsd` resolves there (checked: `fsd.__file__` → `…/worktrees/<name>/src/fsd`).
+No env-var prefix needed, which matters in sessions whose shell refuses `PYTHONPATH=…` prefixes.
+
 ---
 
 ## Harvest every timing that was ever measured (`_result.json` sweep)

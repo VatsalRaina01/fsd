@@ -28,7 +28,15 @@ from fsd import config
 from fsd.catalog import processing as processing_module
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.raster.cog import stamp_or_reencode
-from fsd.sources._granules import granule_columns, granule_folderpath, item_granule
+from fsd.sources._granules import (
+    granule_columns,
+    granule_folderpath,
+    item_granule,
+    report_download,
+    require_valid_processing,
+    select_granules,
+    surviving_items,
+)
 from fsd.sources._s2_radiometry import offset_for_item
 from fsd.storage import fs
 
@@ -301,43 +309,6 @@ def _items_to_gdf(
     gdf["timestamp"] = pd.to_datetime(gdf["timestamp"], utc=True)
     gdf["processing_datetime"] = pd.to_datetime(gdf["processing_datetime"], utc=True)
     return gdf
-
-
-def _select_processing(tiles: gpd.GeoDataFrame, processing: str | None) -> gpd.GeoDataFrame:
-    """Spec 59 D7: one processing per acquisition among what CDSE offers (`"latest"` by
-    default, or a specifier). CDSE never deduplicated before this; its own forum guidance
-    for near-duplicate products is "use the most recent". Every skip is printed."""
-    selection = processing_module.select_processing(tiles, processing)
-    processing_module.print_selection(
-        selection, prefix="[fsd.cdse.download]", processing=processing,
-    )
-    return selection.kept
-
-
-def _require_valid_processing(processing, collection: str) -> None:
-    errs = processing_module.processing_errors(
-        processing, collection=collection, allow_none=False,
-    )
-    if errs:
-        raise ValueError("; ".join(errs))
-
-
-def _kept_items(items, tile_meta: dict, collection: str) -> list[tuple]:
-    """`[(item, canonical_id), ...]` for the items whose canonical granule name survived
-    selection."""
-    pairs = ((it, item_granule(collection, it).canonical_name) for it in items)
-    return [(it, tid) for it, tid in pairs if tid in tile_meta]
-
-
-def _report_download(catalog, tiles: gpd.GeoDataFrame, *, processing: str) -> None:
-    """D7's post-download report (see `mpc._report_download`)."""
-    if len(tiles) == 0 or not fs.exists(catalog.filepath):
-        return
-    for line in processing_module.ambiguity_lines(
-        catalog.read(), set(tiles["acquisition_key"]), n_matched=len(tiles),
-        processing=processing, source=SOURCE,
-    ):
-        print(line, flush=True)
 
 
 def _finalize_catalog_gdf(
@@ -823,7 +794,7 @@ def download(
 
     creds.require_s3()  # discovery (STAC) is anonymous; only download needs S3 keys
     declaration = _collections.get(collection)
-    _require_valid_processing(processing, collection)
+    require_valid_processing(processing, collection)
 
     # A remote (blob) root_folderpath runs the whole existing local pipeline
     # (transfer/convert/stamp) against LOCAL scratch -- every path below stays local, so
@@ -852,7 +823,9 @@ def download(
         _items_to_gdf(items, collection=collection, declaration=declaration),
         roi_gdf, max_cloudcover,
     )
-    tiles = _select_processing(tiles, processing)
+    # CDSE never deduplicated before spec 59; its own forum guidance for near-duplicate
+    # products is "use the most recent" -- hence "latest" by default (D7).
+    tiles = select_granules(tiles, processing=processing, prefix="[fsd.cdse.download]")
 
     if len(tiles) > max_tiles:
         est_gb = len(tiles) * config.APPROX_GB_PER_TILE
@@ -863,7 +836,7 @@ def download(
 
     s3opts = creds.s3_storage_options()
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}
-    kept_items = _kept_items(items, tile_meta, collection)
+    kept_items = surviving_items(items, tile_meta, collection)
 
     # Flat work list (src, dst, tile_id) built from STAC assets — no S3 listing.
     work: list[tuple[str, str, str]] = []
@@ -1079,7 +1052,7 @@ def download(
     if remote_root is not None:
         _push_scratch_to_remote(root_folderpath, remote_root, catalog)
 
-    _report_download(catalog, tiles, processing=processing)
+    report_download(catalog, tiles, processing=processing, source=SOURCE)
     _emit()  # final line
 
     return DownloadResult(
@@ -1238,7 +1211,7 @@ def probe_throughput(
     if not len(tiles):
         return (0.0, 0, 0.0)
     tile_ids = set(tiles["id"])
-    item = next(it for it, _ in _kept_items(items, dict.fromkeys(tile_ids),
+    item = next(it for it, _ in surviving_items(items, dict.fromkeys(tile_ids),
                                             config.SATELLITE_S2L2A))
     band = bands[0]
     keys = sorted(k for k in item.assets if k.split("_")[0] == band)

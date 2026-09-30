@@ -132,8 +132,12 @@ def run_roi(
 def run_shard(*, shard_url: str, dst: str, catalog: str, status_url: str) -> dict:
     """`--shard` mode: one of N per-shard MPC jobs over a pre-discovered,
     pre-partitioned asset-row CSV. No credentials needed: MPC is anonymous."""
+    # Identity strings must survive the CSV round trip: a bare read_csv turns the S2
+    # baseline "05.00" into the float 5.0 (spec 59 D8: a normalized string).
     with fs.open(shard_url, "r") as f:
-        rows = pd.read_csv(f).to_dict("records")
+        rows = pd.read_csv(
+            f, dtype={"tile_id": str, "acquisition_key": str, "processing_version": str},
+        ).to_dict("records")
 
     catalog_obj = TileCatalog(catalog)
     work_start_at = _dt.datetime.now(_dt.timezone.utc).isoformat()

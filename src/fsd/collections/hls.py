@@ -18,6 +18,7 @@ from collections.abc import Mapping
 
 import pandas as pd
 
+COLLECTION_IDS = ("hls2-s30", "hls2-l30")
 PUBLISHES_VERSION = True
 
 _NAME_RE = re.compile(
@@ -45,7 +46,11 @@ def acquisition_key(name: str) -> str:
 
 def acquisition_date(name: str) -> datetime.date:
     m = _parse(name)
-    return datetime.date(int(m["year"]), 1, 1) + datetime.timedelta(days=int(m["doy"]) - 1)
+    year, doy = int(m["year"]), int(m["doy"])
+    date = datetime.date(year, 1, 1) + datetime.timedelta(days=doy - 1)
+    if doy < 1 or date.year != year:        # day 000, or day 366 of a non-leap year
+        raise ValueError(f"HLS granule id {name!r}: day of year {m['doy']} is not in {year}")
+    return date
 
 
 def processing_version(name: str, properties: Mapping) -> str | None:
