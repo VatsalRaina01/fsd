@@ -17,11 +17,32 @@ from fsd.catalog.declaration import S2_L2A_DECLARATION
 from fsd.sources import _s2_radiometry, mpc
 
 
+def _product_uri(id, dt, baseline, mgrs_tile, generation_time):
+    """A valid ESA product name for a fake item, unique per id (spec 59 D3 needs one)."""
+    import hashlib
+
+    disc = generation_time.replace("-", "").replace(":", "").rstrip("Z") if generation_time \
+        else "20240101T" + f"{int(hashlib.sha1(id.encode()).hexdigest(), 16) % 10**6:06d}"
+    base = (baseline or "05.09").replace(".", "")
+    return (f"S2B_MSIL2A_{dt:%Y%m%dT%H%M%S}_N{base}_R122_{mgrs_tile or 'T33UWP'}_{disc}.SAFE")
+
+
+def _canon(item):
+    """The canonical granule name (spec 59 D3) of a fake item."""
+    return item.properties["s2:product_uri"].removesuffix(".SAFE")
+
+
+def _granule_dir(root, item):
+    """Where spec 59 D2 files this item: {root}/{collection}/YYYY/MM/DD/{canonical}/."""
+    d = item.datetime
+    return (root / config.SATELLITE_S2L2A / f"{d:%Y}" / f"{d:%m}" / f"{d:%d}" / _canon(item))
+
+
 class _FakeItem:
     """Duck-typed stand-in for an MPC pystac `Item` (no network)."""
 
     def __init__(self, id, dt, geom, cloud, baseline, mgrs_tile=None, assets=None,
-                 generation_time=None, processing_version=None):
+                 generation_time=None, processing_version=None, product_uri=None):
         self.id = id
         self.datetime = dt
         self.geometry = sg.mapping(geom)
@@ -34,17 +55,20 @@ class _FakeItem:
             self.properties["s2:mgrs_tile"] = mgrs_tile
         if generation_time is not None:
             self.properties["s2:generation_time"] = generation_time
+        if product_uri is not False:
+            self.properties["s2:product_uri"] = product_uri or _product_uri(
+                id, dt, baseline, mgrs_tile, generation_time)
         self.assets = {k: types.SimpleNamespace(href=v) for k, v in (assets or {}).items()}
 
 
 def _fake_item(id, dt, lon, lat, cloud, baseline="05.09", mgrs_tile=None, assets=None,
-                generation_time=None, processing_version=None):
+                generation_time=None, processing_version=None, product_uri=None):
     if assets is None:
         assets = {"B04": f"https://example/{id}/B04.tif?sig=abc"}
     dt = datetime.datetime.fromisoformat(dt.replace("Z", "+00:00"))
     return _FakeItem(id, dt, sg.box(lon, lat, lon + 1, lat + 1), cloud, baseline,
                      mgrs_tile=mgrs_tile, assets=assets, generation_time=generation_time,
-                     processing_version=processing_version)
+                     processing_version=processing_version, product_uri=product_uri)
 
 
 # --- baseline -> offset (spec 34 §1, generalizing spec 32 D2/D3) -------------
@@ -123,90 +147,72 @@ def test_items_to_gdf_carries_offset_and_nodata():
     ]
     gdf = mpc._items_to_gdf(items, collection=config.SATELLITE_S2L2A,
                          declaration=_collections.get(config.SATELLITE_S2L2A))
-    assert list(gdf["id"]) == ["pre", "post"]
+    assert list(gdf["id"]) == [f"S2B_MSIL2A_20210601T000000_N0214_R122_T33UWP_{d}"
+                               for d in [gdf["id"].iloc[0][-15:]]] + [gdf["id"].iloc[1]]
     assert list(gdf["offset"]) == [0, -1000]
     assert list(gdf["nodata"]) == [0, 0]
     assert gdf.crs.to_epsg() == 4326
     assert str(gdf["timestamp"].dt.tz) == "UTC"
 
 
-def test_mgrs_tile_from_item_prefers_property_falls_back_to_id():
-    with_tile = _fake_item("x", "2021-06-01T00:00:00Z", 0, 0, 1.0, mgrs_tile="T33UWP")
-    without_tile = _fake_item("y", "2021-06-01T00:00:00Z", 0, 0, 1.0)
-    assert mpc._mgrs_tile_from_item(with_tile) == "T33UWP"
-    assert mpc._mgrs_tile_from_item(without_tile) == "y"
+# --- per-acquisition selection (spec 33 rule, generalized by spec 59 D7) -----
 
 
-# --- reprocessing dedup (spec 33) ---------------------------------------------
+def _select(items, processing="latest"):
+    from fsd.catalog import processing as processing_module
+
+    gdf = mpc._items_to_gdf(items, collection=config.SATELLITE_S2L2A,
+                            declaration=_collections.get(config.SATELLITE_S2L2A))
+    return processing_module.select_processing(gdf, processing).kept
 
 
-def test_dedupe_no_duplicates_is_noop():
+def test_selection_no_duplicates_is_noop():
     items = [
         _fake_item("a", "2021-06-01T00:00:00Z", 0, 0, 1.0, mgrs_tile="T33UWP"),
         _fake_item("b", "2021-06-08T00:00:00Z", 0, 0, 1.0, mgrs_tile="T33UWP"),
     ]
-    out = mpc._dedupe_reprocessed_items(items)
-    assert {it.id for it in out} == {"a", "b"}
-    assert len(out) == 2
+    assert len(_select(items)) == 2
 
 
-def test_dedupe_duplicate_pair_latest_generation_time_wins():
+def test_selection_duplicate_pair_latest_generation_time_wins_in_any_order():
     same_dt = "2022-03-01T10:00:29Z"
-    original = _fake_item(
-        "S2B_MSIL2A_20220301T100029_R122_T33UWP_20220303T182540", same_dt, 0, 0, 1.0,
-        mgrs_tile="T33UWP", generation_time="2022-03-03T18:25:40Z",
-    )
-    reprocessed = _fake_item(
-        "S2B_MSIL2A_20220301T100029_R122_T33UWP_20240604T180322", same_dt, 0, 0, 1.0,
-        mgrs_tile="T33UWP", generation_time="2024-06-04T18:03:22Z",
-    )
-    out = mpc._dedupe_reprocessed_items([original, reprocessed])
-    assert len(out) == 1
-    assert out[0].id == "S2B_MSIL2A_20220301T100029_R122_T33UWP_20240604T180322"
-
-    # order-independence
-    out2 = mpc._dedupe_reprocessed_items([reprocessed, original])
-    assert len(out2) == 1
-    assert out2[0].id == "S2B_MSIL2A_20220301T100029_R122_T33UWP_20240604T180322"
+    original = _fake_item("o", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP",
+                          generation_time="2022-03-03T18:25:40Z")
+    reprocessed = _fake_item("r", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP",
+                             generation_time="2024-06-04T18:03:22Z")
+    for order in ([original, reprocessed], [reprocessed, original]):
+        out = _select(order)
+        assert list(out["id"]) == [
+            "S2B_MSIL2A_20220301T100029_N0509_R122_T33UWP_20240604T180322"]
 
 
-def test_dedupe_three_way_group_latest_wins_regardless_of_order():
+def test_selection_three_way_group_latest_wins_regardless_of_order():
     same_dt = "2022-03-01T10:00:29Z"
-    v1 = _fake_item("v1", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP",
-                     generation_time="2022-03-03T18:25:40Z")
-    v2 = _fake_item("v2", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP",
-                     generation_time="2023-01-01T00:00:00Z")
-    v3 = _fake_item("v3", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP",
-                     generation_time="2024-06-04T18:03:22Z")
-    for ordering in ([v1, v2, v3], [v3, v1, v2], [v2, v3, v1]):
-        out = mpc._dedupe_reprocessed_items(ordering)
-        assert len(out) == 1
-        assert out[0].id == "v3"
+    v = [_fake_item(f"v{i}", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP", generation_time=g)
+         for i, g in enumerate(["2022-03-03T18:25:40Z", "2023-01-01T00:00:00Z",
+                                "2024-06-04T18:03:22Z"], 1)]
+    for order in (v, [v[2], v[0], v[1]], [v[1], v[2], v[0]]):
+        out = _select(order)
+        assert list(out["processing_datetime"].dt.year) == [2024]
 
 
-def test_dedupe_missing_generation_time_on_duplicate_group_raises():
-    same_dt = "2022-03-01T10:00:29Z"
-    a = _fake_item("a", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP",
-                    generation_time="2022-03-03T18:25:40Z")
-    b = _fake_item("b", same_dt, 0, 0, 1.0, mgrs_tile="T33UWP")  # no generation_time
-    with pytest.raises(ValueError, match="s2:generation_time"):
-        mpc._dedupe_reprocessed_items([a, b])
+def test_generation_time_comes_from_the_property_not_the_name():
+    """The row's `processing_datetime` is `s2:generation_time` (spec 59 D8)."""
+    it = _fake_item("x", "2022-03-01T10:00:29Z", 0, 0, 1.0,
+                    generation_time="2024-06-04T18:03:22Z")
+    gdf = mpc._items_to_gdf([it], collection=config.SATELLITE_S2L2A,
+                            declaration=_collections.get(config.SATELLITE_S2L2A))
+    assert gdf["processing_datetime"].iloc[0].isoformat().startswith("2024-06-04T18:03:22")
 
 
-def test_dedupe_singleton_missing_generation_time_does_not_raise():
-    it = _fake_item("solo", "2021-06-01T00:00:00Z", 0, 0, 1.0, mgrs_tile="T33UWP")
-    out = mpc._dedupe_reprocessed_items([it])
-    assert len(out) == 1
-    assert out[0].id == "solo"
-
-
-def test_dedupe_key_falls_back_to_item_id_for_missing_mgrs_tile():
-    same_dt = "2022-03-01T10:00:29Z"
-    # no mgrs_tile -> key falls back to item.id, so distinct ids never collide
-    a = _fake_item("a", same_dt, 0, 0, 1.0)
-    b = _fake_item("b", same_dt, 0, 0, 1.0)
-    out = mpc._dedupe_reprocessed_items([a, b])
-    assert {it.id for it in out} == {"a", "b"}
+def test_missing_product_uri_raises_never_falls_back_to_the_mpc_id():
+    """spec 59 section 6: an id without the baseline field would silently break the
+    cross-source equality of the canonical name."""
+    it = _fake_item("MPC-ID-WITHOUT-BASELINE", "2022-03-01T10:00:29Z", 0, 0, 1.0,
+                    product_uri=False)
+    with pytest.raises(ValueError, match="s2:product_uri"):
+        mpc._items_to_gdf([it], collection=config.SATELLITE_S2L2A,
+                          declaration=_collections.get(config.SATELLITE_S2L2A))
 
 
 def test_select_item_files_maps_requested_bands_to_asset_hrefs(tmp_path):
@@ -216,9 +222,10 @@ def test_select_item_files_maps_requested_bands_to_asset_hrefs(tmp_path):
                 "SCL": "https://example/t1/SCL.tif?sig=2"},
     )
     selected = mpc._select_item_files(it, ["B04", "SCL"], str(tmp_path))
+    folder = _granule_dir(tmp_path, it)
     assert selected == [
-        ("https://example/t1/B04.tif?sig=1", str(tmp_path / "t1" / "B04.tif"), "B04"),
-        ("https://example/t1/SCL.tif?sig=2", str(tmp_path / "t1" / "SCL.tif"), "SCL"),
+        ("https://example/t1/B04.tif?sig=1", str(folder / "B04.tif"), "B04"),
+        ("https://example/t1/SCL.tif?sig=2", str(folder / "SCL.tif"), "SCL"),
     ]
 
 
@@ -242,7 +249,7 @@ def test_finalize_filters_cloud_and_roi_reused_from_cdse():
                          declaration=_collections.get(config.SATELLITE_S2L2A))
     roi = gpd.GeoDataFrame(geometry=[sg.box(0.2, 0.2, 0.5, 0.5)], crs="EPSG:4326")
     out = mpc._finalize_catalog_gdf(gdf, roi, max_cloudcover=50.0)
-    assert list(out["id"]) == ["hit"]
+    assert list(out["id"]) == [_canon(items[0])]
 
 
 # --- download (byte-copy + GDAL tag stamp, spec 34 §3) -----------------------
@@ -348,9 +355,7 @@ def test_query_catalog_drops_the_duplicate(monkeypatch):
     gdf = mpc.query_catalog(roi, datetime.datetime(2021, 1, 1), datetime.datetime(2022, 12, 31))
 
     assert len(gdf) == 2
-    assert set(gdf["id"]) == {
-        "S2B_MSIL2A_20220301T100029_R122_T33UWP_20240604T180322", "control",
-    }
+    assert set(gdf["id"]) == {_canon(items[1]), _canon(items[2])}
 
 
 def test_download_drops_the_duplicate_before_transfer(monkeypatch, tmp_path):
@@ -382,9 +387,7 @@ def test_download_drops_the_duplicate_before_transfer(monkeypatch, tmp_path):
     assert result.successful_count == 2  # winner + control, never the loser
 
     gdf = catalog.read()
-    assert set(gdf["id"]) == {
-        "S2B_MSIL2A_20220301T100029_R122_T33UWP_20240604T180322", "control",
-    }
+    assert set(gdf["id"]) == {_canon(items[1]), _canon(items[2])}
     # loser's asset href was never even queued for transfer
     written_srcs = {src for src, _ in written}
     assert "https://example/orig/B04.tif?sig=1" not in written_srcs
@@ -433,9 +436,9 @@ def test_download_end_to_end_mocked(monkeypatch, tmp_path):
     assert len(written) == 2
 
     gdf = catalog.read()
-    assert set(gdf["id"]) == {"pre", "post"}
+    assert set(gdf["id"]) == {_canon(items[0]), _canon(items[1])}
     offsets = dict(zip(gdf["id"], gdf["offset"]))
-    assert offsets == {"pre": 0, "post": -1000}
+    assert offsets == {_canon(items[0]): 0, _canon(items[1]): -1000}
 
 
 def test_download_accepts_remote_root_and_stamps_via_local_scratch(tmp_path, monkeypatch):
@@ -472,7 +475,9 @@ def test_download_accepts_remote_root_and_stamps_via_local_scratch(tmp_path, mon
     import fsspec
 
     memfs = fsspec.filesystem("memory")
-    assert memfs.exists("fsd-mpc-test/imagery/t1/B04.tif")
+    d = items[0].datetime
+    assert memfs.exists(f"fsd-mpc-test/imagery/{config.SATELLITE_S2L2A}/{d:%Y/%m/%d}/"
+                        f"{_canon(items[0])}/B04.tif")
 
 
 def test_gdal_tag_and_stac_raster_bands_agree(tmp_path, monkeypatch):
@@ -702,6 +707,7 @@ def test_transfer_signs_per_attempt_so_a_retry_never_reuses_a_dead_token(monkeyp
         transferred.append(src)
         if len(transferred) < 3:
             raise RuntimeError("403 Server failed to authenticate")
+        open(dst, "wb").write(b"cog")
 
     monkeypatch.setattr(mpc.fs, "transfer", _flaky_transfer)
     monkeypatch.setattr(mpc, "stamp_or_reencode", lambda *a, **kw: None)
@@ -724,7 +730,8 @@ def test_transfer_signs_per_attempt_so_a_retry_never_reuses_a_dead_token(monkeyp
 def test_transfer_without_a_signer_passes_the_url_through(monkeypatch, tmp_path):
     """`sign=None` (CDSE, a local file, any already-signed url) must not be touched."""
     seen = []
-    monkeypatch.setattr(mpc.fs, "transfer", lambda src, dst: seen.append(src))
+    monkeypatch.setattr(mpc.fs, "transfer",
+                        lambda src, dst: (seen.append(src), open(dst, "wb").write(b"cog")))
     monkeypatch.setattr(mpc, "stamp_or_reencode", lambda *a, **kw: None)
 
     ok, _ = mpc._transfer_and_stamp_one(

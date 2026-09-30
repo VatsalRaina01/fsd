@@ -561,7 +561,7 @@ class TinyAdapter(BaseModelAdapter):
         {"geometry": [shapely.geometry.box(0, 0, 1, 1)]}, crs="EPSG:4326",
     )
     catalog_gdf["timestamp"] = pd.to_datetime(["2018-01-01"], utc=True)
-    cat = str(tmp_path / "catalog.parquet")
+    cat = str(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     fs.write_parquet(cat, catalog_gdf)
 
     def fake_run_create_datacube(*, csv_filepath, **kw):

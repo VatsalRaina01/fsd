@@ -33,6 +33,7 @@ from fsd import collections as _collections
 from fsd import config
 from fsd import progress as _progress
 from fsd.bands import modify as _modify
+from fsd.catalog import processing as _processing
 from fsd.catalog import stac as _stac
 from fsd.catalog.catalog import TileCatalog
 from fsd.catalog.catalog import filter_gdf as _filter_gdf
@@ -157,6 +158,21 @@ def _check_window(startdate, enddate, mosaic_days, bands) -> list[str]:
     if start < end and mosaic_days >= 1 and compute_n_timestamps(start, end, mosaic_days) < 1:
         errs.append("date window yields T < 1 timestamps.")
     return errs
+
+
+def _check_catalog_collection_dir(catalog_filepath: str, collection: str) -> list[str]:
+    """Spec 59 D5: the directory holding `catalog.parquet` is part of the contract --
+    `{root}/{collection}/catalog.parquet` -- so a catalog of one collection handed to a verb
+    for another is caught before any work, naming both."""
+    parent = os.path.basename(os.path.dirname(str(catalog_filepath).rstrip("/")))
+    if parent == collection:
+        return []
+    return [
+        f"catalog_filepath {catalog_filepath!r} sits in a directory named {parent!r}, but "
+        f"collection={collection!r}: a catalog lives at "
+        f"{{archive root}}/{collection}/catalog.parquet (spec 59 D5). Pass the catalog "
+        f"`fsd.download(collection={collection!r}, ...)` returned, or fix collection=."
+    ]
 
 
 def _raise_preflight(errs: list[str]) -> None:
@@ -335,6 +351,7 @@ def download(
     source: str = "mpc",
     collection: str = config.SATELLITE_S2L2A,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str = _processing.LATEST,
     max_tiles: int,
     max_cloudcover: float | None = None,
     cog: bool = True,
@@ -344,8 +361,23 @@ def download(
     runner: str = "local",
     runner_kwargs: dict | None = None,
 ) -> str:
-    """Fetch `collection` tiles for the ROI/date range into `dst_folderpath`, build/append
-    its TileCatalog, and return the catalog filepath (feed it to `create_training_data`).
+    """Fetch `collection` tiles for the ROI/date range into the archive rooted at
+    `dst_folderpath`, build/append the collection's TileCatalog, and return that catalog's
+    filepath (feed it to `create_training_data`).
+
+    **Archive layout (spec 59 D2/D5).** `dst_folderpath` is the archive ROOT; granules land
+    in `{dst_folderpath}/{collection}/YYYY/MM/DD/{canonical granule name}/` and the catalog
+    is `{dst_folderpath}/{collection}/catalog.parquet` (one catalog per collection directory).
+    The canonical granule name keeps every processing field and drops every provider-specific
+    one, so the same granule fetched from MPC and CDSE lands in ONE folder and ONE catalog row
+    (`source` = `"cdse,mpc"`), while two processings of one acquisition coexist on disk.
+
+    **`processing`** (spec 59 D7) chooses which processing of each acquisition to FETCH:
+    `"latest"` (default) or a PEP 440 specifier (`"==05.00"` to match training data,
+    `">=05.00"` to refuse old baselines), applied per acquisition to what the chosen `source`
+    offers, after `properties_filter` and before `max_tiles`. `None` is refused. Every skipped
+    granule is printed, and so is any acquisition the archive now holds in more than one
+    processing -- a build over those needs its own `processing=` (D6).
 
     `source` (provider) and `collection` (product) are orthogonal (spec 58 D1/ADR 0030):
     `source="mpc"` (default) wraps `sources.mpc.download` (Microsoft Planetary Computer,
@@ -385,11 +417,10 @@ def download(
     one of `vault_url=`+`secret_name=` (Key Vault) or `creds_url=` (blob JSON) — see
     `workflows.runners.run_aml_download`. `creds` is ignored for `runner="aml"`: the
     dispatched job reads them on the node instead, so `roi` must be a url the node can
-    also read, never an in-memory GeoDataFrame. **P1 note:** the AML download path
-    (`runner="aml"`) is not yet collection-aware end-to-end -- it always dispatches
-    against `collection`'s discovery query correctly, but its command-line plumbing
-    doesn't yet carry a non-default `collection` to the node; P2/P3 extend it alongside
-    the first non-S2 collection that actually needs cluster-scale download.
+    also read, never an in-memory GeoDataFrame. The AML path is collection-aware: MPC
+    discovers on the driver for `collection` (each shard row carries it), and CDSE only ever
+    serves Sentinel-2 L2A, so its job needs no `collection` argument. `processing` reaches
+    both AML shapes -- driver-side for MPC, on the CDSE job's command line.
 
     `dst_folderpath` is the identity of this download: its `TileCatalog` is what a
     re-run diffs against to skip what is already there, so re-running with a different `roi`/
@@ -417,11 +448,15 @@ def download(
             f"properties_filter is not implemented for source={source!r} (only 'mpc'); "
             "drop it, or use source='mpc'."
         )
+    errs += _processing.processing_errors(processing, collection=collection, allow_none=False)
     _raise_preflight(errs)
 
     _configure_storage(storage)
+    # Spec 59 D5: `dst_folderpath` is the archive root; the catalog lives in the
+    # collection's own directory.
     fs.makedirs(dst_folderpath)
-    catalog_filepath = os.path.join(dst_folderpath, "catalog.parquet")
+    catalog_filepath = os.path.join(dst_folderpath, collection, "catalog.parquet")
+    fs.makedirs(os.path.dirname(catalog_filepath))
 
     if runner == "aml":
         from fsd.workflows import runners as _runners
@@ -431,7 +466,7 @@ def download(
             dst_folderpath=dst_folderpath, catalog_filepath=catalog_filepath,
             source=source, max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog,
             collection=collection, properties_filter=properties_filter,
-            **(runner_kwargs or {}),
+            processing=processing, **(runner_kwargs or {}),
         )
         return catalog_filepath
 
@@ -442,14 +477,14 @@ def download(
             root_folderpath=dst_folderpath, catalog=catalog,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, progress=progress,
             collection=collection, max_concurrent=max_concurrent,
-            properties_filter=properties_filter,
+            properties_filter=properties_filter, processing=processing,
         )
     else:
         _cdse_download(
             roi=roi, startdate=startdate, enddate=enddate, bands=bands,
             root_folderpath=dst_folderpath, catalog=catalog, creds=creds,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog, progress=progress,
-            collection=collection, max_concurrent_s3=max_concurrent,
+            collection=collection, max_concurrent_s3=max_concurrent, processing=processing,
         )
     return catalog_filepath
 
@@ -476,6 +511,7 @@ def create_training_data(
     source: str = "mpc",
     collection: str = config.SATELLITE_S2L2A,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str | None = None,
     download: bool = False,
     max_tiles: int | None = None,
     max_cloudcover: float | None = None,
@@ -546,6 +582,18 @@ def create_training_data(
     available). A key no row in the catalog carries at all raises rather than silently
     filtering to zero rows. Every P1 collection declares no partition, so omitting this
     (the default) is a no-op for them.
+
+    `processing` (spec 59 D6) resolves acquisitions the archive holds in more than one
+    processing (two baselines; the same granule from two sources): `None` (default) RAISES
+    naming each duplicate group and the arguments that resolve it; `"latest"` keeps the
+    newest per acquisition; a PEP 440 specifier (`">=05.00"`) keeps rows satisfying it, then
+    the newest (an acquisition with none is dropped and reported). It joins the cube path
+    when not `None`. With `download=True` a specifier is also forwarded to the download leg
+    (D7), and `None` uses the download default `"latest"`.
+
+    `catalog_filepath` is `{archive root}/{collection}/catalog.parquet`; its parent directory
+    must be named for `collection` (spec 59 D5), and `download=True` fetches into the
+    archive root two levels up.
     """
     if adapter is not None and feature_sequence is not None:
         raise PreflightError(
@@ -581,6 +629,8 @@ def create_training_data(
         _resolve_aggregate(aggregate)
     except ValueError as exc:
         errs.append(str(exc))
+    errs += _processing.processing_errors(processing, collection=collection, allow_none=True)
+    errs += _check_catalog_collection_dir(catalog_filepath, collection)
 
     gdf = None
     try:
@@ -635,7 +685,7 @@ def create_training_data(
             bands=bands, collection=collection,
             mosaic_scheme=config.MOSAIC_SCHEME,
             adapter=adapter, feature_sequence=feature_sequence, aggregate=aggregate,
-            properties_filter=properties_filter,
+            properties_filter=properties_filter, processing=processing,
         )
         stamp_filepath = os.path.join(export_folderpath, _FLATTEN_STAMP_NAME)
         if _stamp.matches_stamp(stamp_filepath, identity) and _flatten_outputs_present(
@@ -719,11 +769,17 @@ def create_training_data(
     _raise_preflight(catalog_errs)
 
     if download:
-        dst_folderpath = os.path.dirname(catalog_filepath.rstrip("/")) or "."
+        # Spec 59 D5: the catalog lives at `{root}/{collection}/catalog.parquet`, so the
+        # archive root is its GRANDPARENT (the parent-name check ran in wave 1).
+        dst_folderpath = os.path.dirname(os.path.dirname(catalog_filepath.rstrip("/"))) or "."
         _download_verb(
             roi=shapefilepath, startdate=startdate, enddate=enddate, bands=bands,
             dst_folderpath=dst_folderpath, creds=creds, source=source, collection=collection,
             properties_filter=properties_filter,
+            # D7: a specifier is forwarded; `None` (build default) fetches the download
+            # default, "latest" -- one processing per acquisition, so the build then sees
+            # no ambiguity it did not already have.
+            processing=processing if processing is not None else _processing.LATEST,
             max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog,
             storage=storage, runner=runner, runner_kwargs=runner_kwargs,
         )
@@ -748,7 +804,7 @@ def create_training_data(
         # re-runs and `overwrite="flatten"` both take the scoped path.
         overwrite_setup_csv=build_overwrite,
         overwrite=build_overwrite, runner=runner, runner_kwargs=runner_kwargs,
-        collection=collection, properties_filter=properties_filter,
+        collection=collection, properties_filter=properties_filter, processing=processing,
     )
 
     # Flatten phase delegates to `flatten_training_data` -- no duplicated reduce/
@@ -794,12 +850,15 @@ def _flatten_identity(input_df: pd.DataFrame, *, id_col, filepath_col, adapter, 
     )
     params: dict = {}
     for col in ("bands", "mosaic_days", "startdate", "enddate", "collection",
-               "mosaic_scheme", "properties_filter"):
+               "mosaic_scheme", "properties_filter", "processing"):
         if col in input_df.columns:
             # An empty/NaN field round-trips through CSV as NaN, not "" -- normalize,
             # or this never matches `_flatten_identity_from_request`'s freshly-computed
             # "" for the same request.
             params[col] = sorted(set(input_df[col].fillna("").astype(str)))
+    # An `input.csv` written before spec 59 has no `processing` column; that is the same
+    # request as `processing=None`, which `_flatten_identity_from_request` records as [""].
+    params.setdefault("processing", [""])
     params["aggregate"] = _fingerprint_aggregate(aggregate)
     params["features"] = _fingerprint_features(adapter, feature_sequence)
     identity = {"cubes": cubes, "params": params}
@@ -815,6 +874,7 @@ def _flatten_identity_from_request(
     collection: str, mosaic_scheme: str,
     adapter, feature_sequence, aggregate,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str | None = None,
 ) -> dict:
     """The same identity `_flatten_identity` computes, but from the REQUEST rather than
     from `input.csv`.
@@ -837,7 +897,7 @@ def _flatten_identity_from_request(
     window_segment = _create_datacube.window_folder_segment(
         startdate, enddate, mosaic_days, bands=bands, mosaic_scheme=mosaic_scheme,
         collection=collection, declaration=_collections.get(collection),
-        properties_filter=properties_filter,
+        properties_filter=properties_filter, processing=processing,
     )
     # `input.csv` never gets a row for a shape `setup` found no imagery for, so
     # `_flatten_identity` -- computed FROM `input.csv` -- never names them either. Without
@@ -860,6 +920,7 @@ def _flatten_identity_from_request(
         "collection": [collection],
         "mosaic_scheme": [mosaic_scheme],
         "properties_filter": [_create_datacube._canonicalize_properties_filter(properties_filter)],
+        "processing": [_create_datacube._canonicalize_processing(processing)],
         "aggregate": _fingerprint_aggregate(aggregate),
         "features": _fingerprint_features(adapter, feature_sequence),
     }
@@ -1054,9 +1115,14 @@ def flatten_training_data(
                 filepaths_df=input_df, filepath_col=filepath_col, id_col=id_col,
                 export_folderpath=export_folderpath, label_col=label_col, nodata=nodata,
             )
-        _stamp.write_stamp(stamp_filepath, identity)
 
     data, metadata = _load_landed_arrays(export_folderpath)
+    if not skip:
+        # Spec 59 D9: the stamp records which processing versions and sources the arrays
+        # were flattened from (the reduce union'd them from each cube's metadata). Written
+        # after landing so it can read them; a crash before this leaves no stamp, which
+        # only means "re-flatten" (fail towards running).
+        _stamp.write_stamp(stamp_filepath, identity, provenance=metadata.get("provenance"))
 
     feature_bands = metadata.get("feature_bands")
     if not skip and want_features:
@@ -1475,6 +1541,7 @@ def run_inference(
     scale_fact: float = 1.1,
     collection: str = config.SATELLITE_S2L2A,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str | None = None,
     # --- shared ---
     predict_batch_size: int | None = None,
     skip_nan: bool = True,
@@ -1573,6 +1640,7 @@ def run_inference(
             catalog_filepath=catalog_filepath, startdate=startdate, enddate=enddate,
             mosaic_days=mosaic_days, bands=bands, grid_size_km=grid_size_km,
             scale_fact=scale_fact, collection=collection, properties_filter=properties_filter,
+            processing=processing,
             predict_batch_size=predict_batch_size, skip_nan=skip_nan, merge=merge,
             merge_crs=merge_crs, cores=cores, cubes_per_task=cubes_per_task, overwrite=overwrite,
             collection_id=collection_id, dt=dt, runner=runner, runner_kwargs=runner_kwargs,
@@ -1773,7 +1841,7 @@ def _imagery_missing_message(roi, startdate, enddate, bands, *, catalog_filepath
 def _run_inference_roi(
     model, spec, roi, output_folderpath, errs, *,
     catalog_filepath, startdate, enddate, mosaic_days, bands,
-    grid_size_km, scale_fact, collection, properties_filter=None,
+    grid_size_km, scale_fact, collection, properties_filter=None, processing=None,
     predict_batch_size, skip_nan, merge, merge_crs, cores, cubes_per_task, overwrite,
     collection_id, dt, runner="local", runner_kwargs=None, registry=None,
 ) -> InferenceResult:
@@ -1786,6 +1854,9 @@ def _run_inference_roi(
                       ("enddate", enddate), ("mosaic_days", mosaic_days), ("bands", bands)]:
         if val is None:
             errs.append(f"roi mode requires {name}=.")
+    errs += _processing.processing_errors(processing, collection=collection, allow_none=True)
+    if catalog_filepath is not None:
+        errs += _check_catalog_collection_dir(catalog_filepath, collection)
     # Normalize dates HERE, before `compute_n_timestamps` or any dispatch: an unparseable
     # date must abort on the driver in milliseconds, not after a 40-380 s node cold-start.
     if startdate is not None and enddate is not None:
@@ -1906,7 +1977,7 @@ def _run_inference_roi(
                 startdate=startdate, enddate=enddate, bands=bands,
                 mosaic_days=mosaic_days,
                 csv_filepath=csv_filepath, label_col=None, collection=collection,
-                properties_filter=properties_filter,
+                properties_filter=properties_filter, processing=processing,
             )
         except ValueError as exc:
             raise PreflightError(_imagery_missing_message(
@@ -2010,6 +2081,7 @@ def verify_adapter(
     scale_fact: float = 1.1,
     collection: str = config.SATELLITE_S2L2A,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str | None = None,
     predict_batch_size: int | None = None,
     skip_nan: bool = True,
     runner: str = "local",
@@ -2099,6 +2171,8 @@ def verify_adapter(
     # below both touch storage, ahead of this verb's own `_raise_preflight(errs)`.
     _configure_storage(storage)
     errs = list(date_errs)
+    errs += _processing.processing_errors(processing, collection=collection, allow_none=True)
+    errs += _check_catalog_collection_dir(catalog_filepath, collection)
     if not date_errs:
         errs += _check_window(startdate, enddate, mosaic_days, bands)
     if not export_folderpath:
@@ -2192,6 +2266,10 @@ def verify_adapter(
         "properties_filter": _create_datacube._canonicalize_properties_filter(properties_filter),
         "grid_size_km": grid_size_km, "scale_fact": scale_fact, "cell": chosen_cell,
     }
+    if processing is not None:
+        # Only when used, so a stamp written before spec 59 still matches a request that
+        # does not use it.
+        identity["processing"] = _create_datacube._canonicalize_processing(processing)
     cube_filepath = os.path.join(export_folderpath, "datacube.npy")
     metadata_filepath = os.path.join(export_folderpath, "metadata.pickle.npy")
     stamp_filepath = os.path.join(export_folderpath, "_cube_stamp.json")
@@ -2248,7 +2326,7 @@ def verify_adapter(
                 mosaic_days=mosaic_days,
                 csv_filepath=build_csv_filepath, label_col=None, cores=1,
                 runner=runner, runner_kwargs=runner_kwargs, collection=collection,
-                properties_filter=properties_filter,
+                properties_filter=properties_filter, processing=processing,
             )
         except ValueError as exc:
             raise PreflightError(_imagery_missing_message(

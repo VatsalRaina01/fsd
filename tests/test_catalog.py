@@ -223,6 +223,17 @@ def test_read_does_not_backfill_a_legacy_catalog_missing_offset_nodata(tmp_path)
     fp = str(tmp_path / "old_catalog.parquet")
     fs.write_parquet(fp, gdf)
 
+    # spec 59 D8/AC13: a catalog without the acquisition columns is refused, naming them
+    # and saying "re-download" -- no shim.
+    with pytest.raises(ValueError, match=r"acquisition_key.*re-download"):
+        TileCatalog(fp).read()
+
+    # ...but a catalog that HAS them is still not backfilled for the older columns.
+    gdf["acquisition_key"] = gdf["id"]
+    gdf["processing_version"] = None
+    gdf["processing_datetime"] = None
+    gdf["source"] = "mpc"
+    fs.write_parquet(fp, gdf)
     read_back = TileCatalog(fp).read()
     assert "offset" not in read_back.columns
     assert "nodata" not in read_back.columns

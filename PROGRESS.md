@@ -24,14 +24,25 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
    bug-1 fix, this `PROGRESS.md` update, the notebook-guard change, and their merges). Until then
    `EnterWorktree` (which branches from `origin/main`) misses them, so make worktrees by hand:
    `git worktree add -b <branch> .claude/worktrees/<name> main`.
-3. **Implement [spec 59](specs/59-imagery-archive-layout.md) P1** — CURRENT, THE ORDER step 9.
-   **SIGNED OFF 2026-09-30** (user). Grilled 2026-09-29 (D1–D12), amended before sign-off: D7
-   (`download` takes `processing=`, default `"latest"`) and D10 (the byte copy was already atomic —
-   the real #74 defect is stamping *after* the rename; fix = stamp-then-publish via `<dst>.stage`).
-   The archive is lossless (ADR 0032): folders are named by the *canonical granule name*, two
-   processings coexist, a build over both raises, `processing=` selects per acquisition. P1 is
-   network-free (Sonnet session, `/effort medium`, against §10's build order); then the P2
-   re-download run-book. Next spec after 59: **#101** (train-vs-inference processing guard).
+3. **Review + merge [spec 59](specs/59-imagery-archive-layout.md) P1** (Opus, `/effort high`) —
+   **IMPLEMENTED 2026-09-30 on branch `spec59-p1`** (worktree `.claude/worktrees/spec59-p1`),
+   network-free: D2-D11, AC 1-17 covered by `tests/test_spec59_p1.py` (44 tests) plus the existing
+   suites migrated to the new contract. `pytest -q` **1214 passed / 105 skipped** (baseline
+   1174/105), `ruff check src tests demos examples` clean. Review against spec 59 + repo
+   standards, then merge `--no-ff`, close #74 with the merge hash, prune the worktree.
+   **Then P2:** the re-download run-book + D12's notebook/doc repointing (Austria S2 + the S1
+   blob imagery). Next spec after 59: **#101** (train-vs-inference processing guard).
+   What P1 left for P2 on purpose: `docs/tutorial.md` and the committed
+   `tests/data/tutorial/` fixture still use the pre-59 catalog (flat folders, no acquisition
+   columns) -- `tests/test_tutorial_fixture.py` converts a per-test copy into
+   `{root}/sentinel-2-l2a/catalog.parquet`; the tutorial's `catalog_filepath=` line will fail D5's
+   preflight until D12 repoints it. Notebooks untouched. Also unverified (spec §5 AC 20): whether a
+   blob mid-put kill leaves a partial blob visible under the final name -- the run-book checks it.
+   Implementation notes worth knowing: one shared selector `fsd/catalog/processing.py` serves
+   `download` (D7) and the builds (D6); granule parsers live in `fsd/collections/{s2_l2a,s1_rtc,hls}.py`
+   behind `collections/naming.py` (HLS has parsers but no declaration yet); the venv's editable
+   install points at the MAIN checkout, so run tests from a worktree with
+   `-o pythonpath=src`.
 
 Standing open items from P2 (not blocking): **D18 needs amending** (Window A is `s2grid=4772924`,
 not `476da24`, which has no labels within 47.7 km); D17's `nodata=-32768` is decorative (the build

@@ -22,6 +22,8 @@ from fsd.sources import cdse, mpc
 def test_ac6_mpc_missing_band_raises_naming_band_and_collection():
     class _Item:
         id = "t1"
+        datetime = __import__("datetime").datetime(2018, 6, 1)
+        properties = {"s2:product_uri": "S2B_MSIL2A_20180601T100019_N0500_R122_T33UWP_20230101T000000.SAFE"}
         assets = {"B04": type("A", (), {"href": "https://x/B04.tif"})()}
 
     with pytest.raises(ValueError, match=r"B02.*sentinel-2-l2a"):
@@ -31,6 +33,8 @@ def test_ac6_mpc_missing_band_raises_naming_band_and_collection():
 def test_ac6_cdse_missing_band_raises_naming_band_and_collection():
     class _Item:
         id = "t1"
+        datetime = __import__("datetime").datetime(2018, 6, 1)
+        properties = {"s2:product_uri": "S2B_MSIL2A_20180601T100019_N0500_R122_T33UWP_20230101T000000.SAFE"}
         assets = {
             "B04_10m": type("A", (), {"href": "https://x/B04.jp2"})(),
             "granule_metadata": type(

@@ -185,7 +185,7 @@ def test_create_training_data_overwrite_forwarding(
 ):
     import datetime
 
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     export = tmp_path / "export"
     seen = {}
 
@@ -224,7 +224,7 @@ def test_create_training_data_overwrite_forwarding(
 def test_invalid_overwrite_raises(tmp_path):
     import datetime
 
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     with pytest.raises(api.PreflightError, match="overwrite"):
         api.create_training_data(
             label_polygons=_polys(tmp_path), catalog_filepath=cat,

@@ -55,7 +55,7 @@ def test_compute_n_timestamps_calendar_identity():
 # --- preflight ---------------------------------------------------------------
 
 def test_preflight_rejects_bad_window_and_makes_nothing(tmp_path):
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     export = tmp_path / "export"
     with pytest.raises(api.PreflightError):
         fsd.create_training_data(
@@ -78,7 +78,7 @@ def test_preflight_missing_catalog(tmp_path):
 
 
 def test_preflight_missing_columns(tmp_path):
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     with pytest.raises(api.PreflightError, match="not in label_polygons"):
         fsd.create_training_data(
             label_polygons=_polys(tmp_path), catalog_filepath=cat,
@@ -91,7 +91,7 @@ def test_preflight_missing_columns(tmp_path):
 
 @pytest.mark.parametrize("kwargs", [{"runner": "batch"}, {"storage": object()}])
 def test_seam_guard_local_only(tmp_path, kwargs):
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     with pytest.raises(api.PreflightError):
         fsd.create_training_data(
             label_polygons=_polys(tmp_path), catalog_filepath=cat,
@@ -104,7 +104,7 @@ def test_seam_guard_local_only(tmp_path, kwargs):
 # --- feature / aggregate wiring guards (P0.5) --------------------------------
 
 def test_adapter_and_feature_sequence_conflict(tmp_path):
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     with pytest.raises(api.PreflightError, match="not both"):
         fsd.create_training_data(
             label_polygons=_polys(tmp_path), catalog_filepath=cat,
@@ -115,7 +115,7 @@ def test_adapter_and_feature_sequence_conflict(tmp_path):
 
 
 def test_unknown_aggregate_rejected(tmp_path):
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     with pytest.raises(api.PreflightError, match="aggregate"):
         fsd.create_training_data(
             label_polygons=_polys(tmp_path), catalog_filepath=cat,
@@ -182,7 +182,7 @@ def test_apply_training_features_keeps_every_pixel_when_aggregate_is_none(tmp_pa
 # --- orchestration wiring (build + flatten monkeypatched) --------------------
 
 def test_create_training_data_orchestration(tmp_path, monkeypatch):
-    cat = _touch(tmp_path / "catalog.parquet")
+    cat = _touch(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     export = tmp_path / "export"
     n_px, T, bands = 7, 19, ["B04", "B08"]
 

@@ -37,8 +37,10 @@ import shapely
 from fsd import collections as _collections
 from fsd import config
 from fsd.catalog import catalog as catalog_module
+from fsd.catalog import processing as processing_module
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.raster.cog import stamp_or_reencode
+from fsd.sources._granules import granule_columns, granule_folderpath, item_granule
 from fsd.sources._s2_radiometry import offset_for_item
 from fsd.sources.cdse import _finalize_catalog_gdf, _is_local_path, _roi_gdf
 from fsd.storage import fs
@@ -50,6 +52,9 @@ __all__ = [
     "discover_shard_rows",
     "download_shard",
 ]
+
+# The value of the catalog `source` column for rows this module writes (spec 59 D8).
+SOURCE = "mpc"
 
 # The collections this source serves (spec 58 D15). MPC also hosts hls2-s30/hls2-l30
 # (see specs/58 D17/P3), but P1/P2 register no declaration for them yet, so this
@@ -81,42 +86,6 @@ def _item_self_href(item) -> str:
         except Exception:  # noqa: BLE001 - purely informational, never fatal
             return ""
     return getattr(item, "self_href", None) or ""
-
-
-def _mgrs_tile_from_item(item) -> str:
-    """`s2:mgrs_tile`, falling back to the item id if absent."""
-    return item.properties.get("s2:mgrs_tile") or item.id
-
-
-def _generation_time(item) -> str:
-    """`s2:generation_time` (RFC-3339 str) — the reliable "which processing pass"
-    property (cross-validated over the id's trailing field, which ESA's own
-    naming-convention doc does not guarantee is monotonic). Raises if missing -
-    only called when a duplicate group actually needs a tie-break."""
-    gt = item.properties.get("s2:generation_time")
-    if gt is None:
-        raise ValueError(
-            f"MPC item {item.id!r} is one of >1 items for the same "
-            "acquisition (same sensing time + MGRS tile) but has no "
-            "'s2:generation_time' property; cannot pick the latest processing "
-            "(spec 33 Fork 3)."
-        )
-    return gt
-
-
-def _dedupe_reprocessed_items(items: list) -> list:
-    """Collapse multiple STAC items covering the SAME acquisition -- identical sensing
-    `item.datetime` + MGRS tile -- down to one; the latest `s2:generation_time` wins.
-
-    A no-op for items with distinct (timestamp, tile) keys, which is the common case."""
-    groups: dict[tuple, list] = {}
-    for it in items:
-        key = (it.datetime, _mgrs_tile_from_item(it))
-        groups.setdefault(key, []).append(it)
-    return [
-        group[0] if len(group) == 1 else max(group, key=_generation_time)
-        for group in groups.values()
-    ]
 
 
 def _import_pc():
@@ -200,7 +169,8 @@ def _items_to_gdf(
     needs_offset = declaration.radiometry_bands != ()
     rows = [
         {
-            "id": it.id,
+            # `id` is the canonical granule name (spec 59 D3), not MPC's item id.
+            **granule_columns(item_granule(collection, it), source=SOURCE),
             "collection": collection,
             "timestamp": it.datetime,
             "s3url": _item_self_href(it),
@@ -215,11 +185,41 @@ def _items_to_gdf(
     ]
     gdf = gpd.GeoDataFrame(
         rows, columns=["id", "collection", "timestamp", "s3url", "cloud_cover",
-                       "offset", "scale", "nodata", "properties", "geometry"],
+                       "offset", "scale", "nodata", "acquisition_key", "processing_version",
+                       "processing_datetime", "source", "properties", "geometry"],
         geometry="geometry", crs="EPSG:4326",
     )
     gdf["timestamp"] = pd.to_datetime(gdf["timestamp"], utc=True)
+    gdf["processing_datetime"] = pd.to_datetime(gdf["processing_datetime"], utc=True)
     return gdf
+
+
+def _select_tiles(
+    tiles: gpd.GeoDataFrame, *, properties_filter, processing: str | None,
+) -> gpd.GeoDataFrame:
+    """`properties_filter`, then D7's per-acquisition `processing` selection -- both before
+    the `max_tiles` cap, so the cap counts what will actually transfer. Every skipped granule
+    is printed."""
+    tiles = catalog_module.filter_by_properties(tiles, properties_filter)
+    selection = processing_module.select_processing(tiles, processing)
+    processing_module.print_selection(
+        selection, prefix="[fsd.mpc.download]", processing=processing,
+    )
+    return selection.kept
+
+
+def _report_download(
+    catalog, tiles: gpd.GeoDataFrame, *, processing: str,
+) -> None:
+    """D7's post-download report: how many acquisitions this download touched, and whether
+    any now holds more than one processing in the archive."""
+    if len(tiles) == 0 or not fs.exists(catalog.filepath):
+        return
+    for line in processing_module.ambiguity_lines(
+        catalog.read(), set(tiles["acquisition_key"]), n_matched=len(tiles),
+        processing=processing, source=SOURCE,
+    ):
+        print(line, flush=True)
 
 
 def query_catalog(
@@ -229,20 +229,24 @@ def query_catalog(
     *,
     max_cloudcover: float | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    processing: str | None = processing_module.LATEST,
 ) -> gpd.GeoDataFrame:
     """Discover `collection` tiles intersecting `roi` within the date range, via the
     MPC STAC API (anonymous by default).
 
-    Returns a GeoDataFrame: id, collection, timestamp, s3url, cloud_cover,
-    offset, scale, nodata, properties, geometry (EPSG:4326). Asserts tile id uniqueness.
+    Returns a GeoDataFrame: id (canonical granule name), collection, timestamp, s3url,
+    cloud_cover, offset, scale, nodata, acquisition_key, processing_version,
+    processing_datetime, source, properties, geometry (EPSG:4326). Asserts id uniqueness.
+    `processing` is applied per acquisition (spec 59 D7); default `"latest"` keeps spec 33's
+    behaviour of one item per acquisition.
     """
     declaration = _collections.get(collection)
     roi_gdf = _roi_gdf(roi)
     items = _search_items(roi_gdf, startdate, enddate, max_cloudcover=max_cloudcover,
                            collection=collection)
-    items = _dedupe_reprocessed_items(items)
     gdf = _items_to_gdf(items, collection=collection, declaration=declaration)
-    return _finalize_catalog_gdf(gdf, roi_gdf, max_cloudcover)
+    gdf = _finalize_catalog_gdf(gdf, roi_gdf, max_cloudcover)
+    return processing_module.select_processing(gdf, processing).kept
 
 
 # --- tile download (byte-copy + GDAL metadata stamp) -------------------------
@@ -268,7 +272,8 @@ def _select_item_files(
     cube quietly build with a missing band."""
     if declaration is None:
         declaration = _collections.get(collection)
-    dst_folder = os.path.join(root_folderpath, item.id)
+    # Spec 59 D2/D3: `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`.
+    dst_folder = granule_folderpath(root_folderpath, collection, item_granule(collection, item))
     selected = []
     for band in bands:
         native = declaration.canonical_to_native(band)
@@ -371,6 +376,12 @@ def _transfer_and_stamp_one(
     local scratch first, gets stamped there, and is then pushed to `dst_path`. Idempotent
     skip on an existing non-empty `dst_path`. Returns `(ok, reason)`.
 
+    **Stamp, then publish (spec 59 D10, closes #74).** `dst_path` is created by the LAST
+    step and never edited afterwards: a local destination is staged as `<dst>.stage`
+    (`fs.transfer` -- itself atomic through its own `.part` -- then the in-place stamp), and
+    only then `os.replace`d onto `dst_path`. A kill or a stamp exception before that leaves
+    no `dst_path`, so the `size > 0` skip above can only ever see a fully stamped file.
+
     `sign`, when given, is applied to `src_url` **inside the retry loop, immediately before
     each attempt** -- so the SAS token is minted seconds before it is used, never at
     discovery time. An MPC token lives ~45 min; a whole-archive `download()` runs longer
@@ -389,7 +400,9 @@ def _transfer_and_stamp_one(
 
     local = _is_local_path(dst_path)
     scratch_dir = None
-    scratch = dst_path
+    # `.stage`, not `.part`: `fs.transfer` already uses `<dst>.part` for its own sidecar,
+    # and reusing the suffix would give `B04.tif.part.part` mid-copy (spec 59 D10).
+    scratch = dst_path + ".stage"
     if not local:
         scratch_dir = tempfile.mkdtemp(prefix="fsd_mpc_")
         scratch = os.path.join(scratch_dir, os.path.basename(dst_path))
@@ -410,7 +423,9 @@ def _transfer_and_stamp_one(
                     scale=declaration.scale if is_reflectance else 1.0,
                     set_nodata_if_missing=config.NODATA,
                 )
-                if not local:
+                if local:
+                    os.replace(scratch, dst_path)   # the ONLY step that creates dst_path
+                else:
                     fs.put(scratch, dst_path)
                 return True, "ok"
             except Exception as e:  # noqa: BLE001 - retried below; final failure reported
@@ -422,6 +437,18 @@ def _transfer_and_stamp_one(
     finally:
         if scratch_dir is not None:
             shutil.rmtree(scratch_dir, ignore_errors=True)
+        elif os.path.exists(scratch):
+            try:
+                os.remove(scratch)
+            except OSError:
+                pass
+
+
+def _none_if_nan(value):
+    """A shard-CSV round trip turns a null into NaN / ""; the catalog wants `None`."""
+    if value is None or value == "" or (not isinstance(value, str) and pd.isna(value)):
+        return None
+    return value
 
 
 def _append_downloaded(
@@ -453,6 +480,10 @@ def _append_downloaded(
             "offset": r["offset"],
             "scale": r.get("scale", declaration.scale),
             "nodata": r["nodata"],
+            "acquisition_key": r.get("acquisition_key", tile_id),
+            "processing_version": _none_if_nan(r.get("processing_version")),
+            "processing_datetime": _none_if_nan(r.get("processing_datetime")),
+            "source": SOURCE,
             "properties": r.get("properties", "{}"),
             "geometry": r["geometry"],
         })
@@ -478,9 +509,16 @@ def download(
     should_stop: Callable[[], bool] | None = None,
     collection: str = config.SATELLITE_S2L2A,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str = processing_module.LATEST,
 ) -> DownloadResult:
     """Discover matching MPC `collection` tiles and download the requested band files
     to `root_folderpath`, local or remote/blob. No credentials required: MPC is anonymous.
+
+    `processing` (spec 59 D7) selects ONE processing per acquisition among what MPC offers
+    -- `"latest"` (default, spec 33's rule generalized to the acquisition key) or a PEP 440
+    specifier -- after `properties_filter` and before `max_tiles`. `None` raises. Every
+    skipped granule is printed, and so is any acquisition this download leaves holding more
+    than one processing in the archive.
 
     Unlike `cdse.download`, source assets are already COG — no jp2->COG conversion — so this
     uses a straightforward thread-pool transfer + stamp, with no convert-process-pool and no
@@ -501,6 +539,7 @@ def download(
     import time
 
     declaration = _collections.get(collection)
+    _require_valid_processing(processing, collection)
 
     if _is_local_path(root_folderpath):
         fs.makedirs(root_folderpath, exist_ok=True)
@@ -514,7 +553,6 @@ def download(
     sign = _import_pc_sign()
     items = _search_items_unsigned(roi_gdf, startdate, enddate, max_cloudcover=max_cloudcover,
                                     collection=collection)
-    items = _dedupe_reprocessed_items(items)
     tiles = _finalize_catalog_gdf(
         _items_to_gdf(items, collection=collection, declaration=declaration),
         roi_gdf, max_cloudcover,
@@ -523,7 +561,7 @@ def download(
     # Applied BEFORE the cap: `max_tiles` is a guardrail on bytes about to be moved, so it
     # must count the tiles this run will actually transfer, not the ones discovery saw.
     n_discovered = len(tiles)
-    tiles = catalog_module.filter_by_properties(tiles, properties_filter)
+    tiles = _select_tiles(tiles, properties_filter=properties_filter, processing=processing)
 
     if len(tiles) > max_tiles:
         narrowed = ""
@@ -539,15 +577,15 @@ def download(
         )
 
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}
-    kept_items = [it for it in items if it.id in tile_meta]
+    kept_items = _kept_items(items, tile_meta, collection)
 
     work: list[tuple[str, str, str, str, int]] = []
-    for it in kept_items:
-        offset = tile_meta[it.id]["offset"]
+    for it, tile_id in kept_items:
+        offset = tile_meta[tile_id]["offset"]
         for src, dst, band in _select_item_files(
             it, bands, root_folderpath, collection=collection, declaration=declaration,
         ):
-            work.append((src, dst, it.id, band, offset))
+            work.append((src, dst, tile_id, band, offset))
 
     workers = max_concurrent if max_concurrent is not None else config.MPC_MAX_CONCURRENT
     start = time.time()
@@ -579,6 +617,7 @@ def download(
 
     _print_failure_summary(failures, total=len(work))
     successful = _append_downloaded(catalog, tile_meta, results, declaration)
+    _report_download(catalog, tiles, processing=processing)
 
     return DownloadResult(
         successful_count=successful,
@@ -590,6 +629,23 @@ def download(
     )
 
 
+def _require_valid_processing(processing, collection: str) -> None:
+    """Source-level guard for `processing=` (spec 59 D7): the verbs preflight it, but a
+    direct `mpc.download` / `discover_shard_rows` caller must not get a silent no-op."""
+    errs = processing_module.processing_errors(
+        processing, collection=collection, allow_none=False,
+    )
+    if errs:
+        raise ValueError("; ".join(errs))
+
+
+def _kept_items(items, tile_meta: dict, collection: str) -> list[tuple]:
+    """`[(item, canonical_id), ...]` for the items whose canonical granule name survived
+    selection (the catalog `id` is the canonical name, not the provider's item id)."""
+    pairs = ((it, item_granule(collection, it).canonical_name) for it in items)
+    return [(it, tid) for it, tid in pairs if tid in tile_meta]
+
+
 # --- AML fan-out: driver-side discovery + per-shard download -----------------
 
 # A `discover_shard_rows` row (also the shard CSV's columns): one MPC asset,
@@ -598,6 +654,7 @@ def download(
 _SHARD_ROW_COLUMNS = [
     "tile_id", "band", "href", "dst", "offset",
     "collection", "timestamp", "s3url", "cloud_cover", "scale", "nodata",
+    "acquisition_key", "processing_version", "processing_datetime",
     "properties", "geometry",
 ]
 
@@ -612,6 +669,7 @@ def discover_shard_rows(
     max_cloudcover: float | None = None,
     collection: str = config.SATELLITE_S2L2A,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str = processing_module.LATEST,
 ) -> list[dict]:
     """Driver-side discovery for the AML fan-out: query MPC STAC
     (cheap, no bytes -- `_search_items_unsigned`, so no href carries a token yet)
@@ -630,28 +688,32 @@ def discover_shard_rows(
     `properties_filter` narrows the tiles exactly as in `download()` above (spec 58 D9), and
     here too it lands before any row exists, so `max_tiles` downstream counts only the tiles
     that will actually transfer.
+
+    `processing` (spec 59 D7) is applied here, on the driver, per acquisition -- the shard
+    CSVs then carry only the chosen processing, so no node ever decides. This is one of the
+    four paths `processing=` must reach (spec 59 AC 15).
     """
     declaration = _collections.get(collection)
+    _require_valid_processing(processing, collection)
     roi_gdf = _roi_gdf(roi)
     items = _search_items_unsigned(roi_gdf, startdate, enddate, max_cloudcover=max_cloudcover,
                                     collection=collection)
-    items = _dedupe_reprocessed_items(items)
     tiles = _finalize_catalog_gdf(
         _items_to_gdf(items, collection=collection, declaration=declaration),
         roi_gdf, max_cloudcover,
     )
-    tiles = catalog_module.filter_by_properties(tiles, properties_filter)
+    tiles = _select_tiles(tiles, properties_filter=properties_filter, processing=processing)
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}
-    kept_items = [it for it in items if it.id in tile_meta]
+    kept_items = _kept_items(items, tile_meta, collection)
 
     rows: list[dict] = []
-    for it in kept_items:
-        meta = tile_meta[it.id]
+    for it, tile_id in kept_items:
+        meta = tile_meta[tile_id]
         for href, dst, band in _select_item_files(
             it, bands, root_folderpath, collection=collection, declaration=declaration,
         ):
             rows.append({
-                "tile_id": it.id,
+                "tile_id": tile_id,
                 "band": band,
                 "href": href,
                 "dst": dst,
@@ -662,6 +724,11 @@ def discover_shard_rows(
                 "cloud_cover": meta["cloud_cover"],
                 "scale": meta["scale"],
                 "nodata": meta["nodata"],
+                "acquisition_key": meta["acquisition_key"],
+                "processing_version": _none_if_nan(meta["processing_version"]) or "",
+                "processing_datetime": (
+                    "" if pd.isna(meta["processing_datetime"])
+                    else meta["processing_datetime"].isoformat()),
                 "properties": meta["properties"],
                 "geometry": meta["geometry"].wkt,
             })
@@ -723,6 +790,9 @@ def download_shard(
                 "offset": row["offset"],
                 "scale": row.get("scale", declaration.scale if declaration else 1.0),
                 "nodata": row["nodata"],
+                "acquisition_key": row.get("acquisition_key", tid),
+                "processing_version": row.get("processing_version"),
+                "processing_datetime": row.get("processing_datetime"),
                 "properties": row.get("properties", "{}"),
                 "geometry": shapely.from_wkt(row["geometry"])
                 if isinstance(row["geometry"], str) else row["geometry"],

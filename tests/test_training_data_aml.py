@@ -12,6 +12,7 @@ specs 36/37/38 do it (`_FakeMLClient` + a fake `azure.ai.ml.command`), and blob 
 from __future__ import annotations
 
 import datetime
+import os
 import types
 
 import geopandas as gpd
@@ -204,12 +205,13 @@ def test_create_training_data_download_orchestrates_download_build_flatten_in_or
 ):
     order = []
     n_px, T, bands = 3, 2, ["B04", "B08"]
-    catalog = str(tmp_path / "data" / "catalog.parquet")
+    catalog = str(tmp_path / "data" / "sentinel-2-l2a" / "catalog.parquet")
 
     def fake_download_verb(**kwargs):
         order.append("download")
         # a real download would write the catalog; simulate it existing afterward
-        fs.makedirs(str(tmp_path / "data"))
+        fs.makedirs(os.path.dirname(catalog))
+        os.makedirs(os.path.dirname(catalog), exist_ok=True)
         with open(catalog, "w") as f:
             f.write("")
         assert isinstance(kwargs["roi"], str) and kwargs["roi"].endswith(".geojson")
@@ -255,12 +257,13 @@ def test_create_training_data_download_stages_gdf_once_for_download_and_build(
 ):
     """Q3: an in-memory gdf is staged to ONE geojson that serves both the download roi
     and the build shapefile."""
-    catalog = str(tmp_path / "data" / "catalog.parquet")
+    catalog = str(tmp_path / "data" / "sentinel-2-l2a" / "catalog.parquet")
     seen = {}
 
     def fake_download_verb(*, roi, **kw):
         seen["download_roi"] = roi
-        fs.makedirs(str(tmp_path / "data"))
+        fs.makedirs(os.path.dirname(catalog))
+        os.makedirs(os.path.dirname(catalog), exist_ok=True)
         with open(catalog, "w") as f:
             f.write("")
         return catalog
@@ -301,10 +304,11 @@ def test_create_training_data_stages_gdf_with_timestamp_column(tmp_path, monkeyp
     write uses `gdf.to_json()`, which routes through json.dumps and raises
     `TypeError: Object of type Timestamp is not JSON serializable` without `default=str`.
     The pre-fix code (and every existing test's clean int/str-only fixture) let this slip."""
-    catalog = str(tmp_path / "data" / "catalog.parquet")
+    catalog = str(tmp_path / "data" / "sentinel-2-l2a" / "catalog.parquet")
 
     def fake_download_verb(*, roi, **kw):
-        fs.makedirs(str(tmp_path / "data"))
+        fs.makedirs(os.path.dirname(catalog))
+        os.makedirs(os.path.dirname(catalog), exist_ok=True)
         with open(catalog, "w") as f:
             f.write("")
         # the staged geojson must be real, readable, and preserve id/label
@@ -357,7 +361,8 @@ def test_create_training_data_aml_features_written_locally_after_land_local(
     tmp_path, monkeypatch,
 ):
     n_px, T, bands = 4, 2, ["B04", "B08"]
-    catalog = str(tmp_path / "catalog.parquet")
+    catalog = str(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
+    os.makedirs(os.path.dirname(catalog), exist_ok=True)
     with open(catalog, "w") as f:
         f.write("")
 
@@ -407,7 +412,8 @@ def test_create_training_data_aml_features_written_locally_after_land_local(
 def test_create_training_data_accepts_any_t_no_adapter_n_timestamps_preflight(
     tmp_path, monkeypatch,
 ):
-    catalog = str(tmp_path / "catalog.parquet")
+    catalog = str(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
+    os.makedirs(os.path.dirname(catalog), exist_ok=True)
     with open(catalog, "w") as f:
         f.write("")
 

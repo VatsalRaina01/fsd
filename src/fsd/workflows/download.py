@@ -95,6 +95,7 @@ def run_roi(
     vault_url: str | None = None,
     secret_name: str | None = None,
     creds_url: str | None = None,
+    processing: str = "latest",
 ) -> dict:
     """`--roi` mode: the whole-ROI CDSE job.
 
@@ -116,6 +117,7 @@ def run_roi(
     result = cdse.download(
         roi, start, end, bands, dst, catalog_obj, creds,
         max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog, progress=False,
+        processing=processing,
     )
     work_end_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
     status = _status_from_download_result(
@@ -162,6 +164,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--max-tiles", type=int)
     p.add_argument("--max-cloudcover", type=float, default=None)
     p.add_argument("--no-cog", action="store_true")
+    p.add_argument("--processing", default="latest",
+                   help="'latest' or a PEP 440 specifier, e.g. '>=05.00' (spec 59 D7); "
+                        "--roi mode (CDSE) only -- MPC selects on the driver")
     p.add_argument("--vault-url")
     p.add_argument("--secret-name")
     p.add_argument("--creds-url", help="blob JSON CDSE creds location (D5 REVISED, mutually "
@@ -182,7 +187,7 @@ def main(argv=None) -> None:
             max_tiles=args.max_tiles, status_url=args.status_url,
             max_cloudcover=args.max_cloudcover, cog=not args.no_cog,
             vault_url=args.vault_url, secret_name=args.secret_name,
-            creds_url=args.creds_url,
+            creds_url=args.creds_url, processing=args.processing,
         )
     else:
         status = run_shard(shard_url=args.shard, dst=args.dst, catalog=args.catalog,

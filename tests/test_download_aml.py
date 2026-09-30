@@ -23,6 +23,16 @@ from fsd.storage import fs
 from fsd.workflows import download as download_cli
 from fsd.workflows import runners
 
+
+def _tiles(n: int):
+    """A stand-in for `cdse.query_catalog`'s result: only its length and `acquisition_key`
+    are read by `run_aml_download`."""
+    import pandas as pd
+
+    return pd.DataFrame({"id": [f"t{i}" for i in range(n)],
+                         "acquisition_key": [f"a{i}" for i in range(n)]})
+
+
 CREDS_JSON = json.dumps({
     "sh_clientid": "sh-id", "sh_clientsecret": "sh-secret",
     "s3_access_key": "ak", "s3_secret_key": "sk",
@@ -40,7 +50,8 @@ def test_download_cli_roi_mode_calls_cdse_download_and_writes_status(monkeypatch
         return CREDS_JSON
 
     def _fake_cdse_download(roi, startdate, enddate, bands, root_folderpath, catalog,
-                             creds, *, max_tiles, max_cloudcover=None, cog=True, progress=False):
+                             creds, *, max_tiles, max_cloudcover=None, cog=True, progress=False,
+                             processing="latest"):
         calls["roi"] = roi
         calls["creds"] = creds
         calls["max_tiles"] = max_tiles
@@ -77,7 +88,7 @@ def test_download_cli_shard_mode_calls_mpc_download_shard(monkeypatch):
     monkeypatch.setattr(download_cli.mpc, "download_shard", _fake_download_shard)
 
     shard_url = "memory://dl_shard/shards/0.csv"
-    rows = [{"tile_id": "T1", "band": "B04", "href": "https://x/B04.tif",
+    rows = [{"tile_id": "T1", "acquisition_key": "T1", "band": "B04", "href": "https://x/B04.tif",
               "dst": "memory://dl_shard/data/T1/B04.tif", "offset": 0,
               "collection": "sentinel-2-l2a", "timestamp": "2018-06-01T00:00:00Z",
               "s3url": "", "cloud_cover": 0.0, "nodata": 0,
@@ -102,7 +113,8 @@ def test_download_cli_roi_mode_reads_creds_from_blob_url(monkeypatch):
     calls = {}
 
     def _fake_cdse_download(roi, startdate, enddate, bands, root_folderpath, catalog,
-                             creds, *, max_tiles, max_cloudcover=None, cog=True, progress=False):
+                             creds, *, max_tiles, max_cloudcover=None, cog=True, progress=False,
+                             processing="latest"):
         calls["creds"] = creds
         return cdse.DownloadResult(successful_count=1, total_count=1, skipped_count=0,
                                     failed_count=0, elapsed_s=0.5, bytes_downloaded=42)
@@ -161,7 +173,7 @@ def test_mpc_download_shard_signs_on_node_and_transfers(monkeypatch, tmp_path):
 
     catalog = _FakeCatalog()
     rows = [{
-        "tile_id": "T1", "band": "B04", "href": "https://mpc/B04.tif",
+        "tile_id": "T1", "acquisition_key": "T1", "band": "B04", "href": "https://mpc/B04.tif",
         "dst": str(tmp_path / "T1" / "B04.tif"), "offset": 0,
         "collection": "sentinel-2-l2a", "timestamp": "2018-06-01T00:00:00+00:00",
         "s3url": "", "cloud_cover": 0.0, "nodata": 0, "geometry": "POINT (0 0)",
@@ -183,7 +195,7 @@ def test_mpc_download_shard_appends_to_a_real_tile_catalog(monkeypatch, tmp_path
 
     catalog = TileCatalog(str(tmp_path / "catalog.parquet"))
     rows = [{
-        "tile_id": "T1", "band": "B04", "href": "https://mpc/B04.tif",
+        "tile_id": "T1", "acquisition_key": "T1", "band": "B04", "href": "https://mpc/B04.tif",
         "dst": str(tmp_path / "T1" / "B04.tif"), "offset": -1000,
         "collection": "sentinel-2-l2a", "timestamp": "2018-06-01T00:00:00+00:00",
         "s3url": "", "cloud_cover": 0.0, "nodata": 0, "geometry": "POINT (1 2)",
@@ -246,7 +258,7 @@ def _write_status(root, run_id, k, status="ok", circuit_tripped=False):
 # --- test 2/6: D1 -- CDSE submits exactly one job regardless of tile count ---
 
 def test_run_aml_download_cdse_submits_exactly_one_job(fake_aml_command, monkeypatch):
-    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: list(range(37)))
+    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: _tiles(37))
     ml_client = _FakeMLClient(["Completed"])
 
     root = "memory://aml_dl_cdse/root"
@@ -272,7 +284,7 @@ def test_run_aml_download_cdse_one_job_is_non_vacuous(fake_aml_command, monkeypa
     (buggy) one-job-per-tile dispatcher, so pinning it at exactly 1 job regardless of
     tile count (1 vs 37) is a real assertion, not a coincidence of the fixture."""
     for n_tiles, run_id in [(1, "mutrun_small"), (37, "mutrun_big")]:
-        monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, n=n_tiles, **kw: list(range(n)))
+        monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, n=n_tiles, **kw: _tiles(n))
         ml_client = _FakeMLClient(["Completed"])
         root = f"memory://aml_dl_cdse_mut/{run_id}"
         _write_status(root, run_id, 0)
@@ -295,7 +307,7 @@ def test_run_aml_download_cdse_one_job_is_non_vacuous(fake_aml_command, monkeypa
 
 def _mpc_rows(n):
     return [{
-        "tile_id": f"T{i}", "band": "B04", "href": f"https://mpc/{i}/B04.tif",
+        "tile_id": f"T{i}", "acquisition_key": f"T{i}", "band": "B04", "href": f"https://mpc/{i}/B04.tif",
         "dst": f"memory://x/{i}/B04.tif", "offset": 0, "collection": "sentinel-2-l2a",
         "timestamp": "2018-06-01T00:00:00+00:00", "s3url": "", "cloud_cover": 0.0,
         "nodata": 0, "geometry": "POINT (0 0)",
@@ -451,8 +463,8 @@ def test_mpc_catalog_shortfall_checks_band_not_just_tile(tmp_path):
     from fsd.workflows.runners import _mpc_catalog_shortfall
 
     rows = [
-        {"tile_id": "T0", "band": "B04", "dst": "x"},
-        {"tile_id": "T0", "band": "B08", "dst": "y"},
+        {"tile_id": "T0", "acquisition_key": "T0", "band": "B04", "dst": "x"},
+        {"tile_id": "T0", "acquisition_key": "T0", "band": "B08", "dst": "y"},
     ]
     catalog_path = tmp_path / "catalog.parquet"
     _write_mpc_catalog(catalog_path, {"T0": ["B04"]})   # B08 missing for T0
@@ -467,7 +479,7 @@ def test_mpc_catalog_shortfall_checks_band_not_just_tile(tmp_path):
 def test_run_aml_download_cdse_job_carries_identity_timeout_and_kv_coords_not_secret(
     fake_aml_command, monkeypatch,
 ):
-    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: list(range(2)))
+    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: _tiles(2))
     ml_client = _FakeMLClient(["Completed"])
     root = "memory://aml_dl_kv/root"
     run_id = "kvrun"
@@ -497,7 +509,7 @@ def test_run_aml_download_cdse_job_carries_identity_timeout_and_kv_coords_not_se
 def test_run_aml_download_cdse_creds_url_puts_location_not_value_in_command(
     fake_aml_command, monkeypatch,
 ):
-    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: list(range(2)))
+    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: _tiles(2))
     ml_client = _FakeMLClient(["Completed"])
     root = "memory://aml_dl_blob/root"
     run_id = "blobrun"
@@ -584,7 +596,7 @@ def test_run_aml_download_raises_when_job_reports_failed(fake_aml_command, monke
 def test_run_aml_download_raises_on_circuit_tripped_even_if_aml_completed(
     fake_aml_command, monkeypatch,
 ):
-    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: list(range(1)))
+    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: _tiles(1))
     ml_client = _FakeMLClient(["Completed"])  # AML itself reports success
     root = "memory://aml_dl_trip/root"
     run_id = "triprun"
@@ -622,7 +634,7 @@ def test_api_download_runner_aml_threads_runner_kwargs(monkeypatch, tmp_path):
 
     assert calls["cluster"] == "c"
     assert calls["source"] == "cdse"
-    assert catalog_filepath == str(tmp_path / "data" / "catalog.parquet")
+    assert catalog_filepath == str(tmp_path / "data" / "sentinel-2-l2a" / "catalog.parquet")
 
 
 def test_api_download_rejects_unknown_runner():
@@ -770,7 +782,7 @@ def test_run_aml_download_mpc_rejects_creds_url_end_to_end(fake_aml_command, mon
     """The dispatcher must surface it too -- preflight is only reached via run_aml_download."""
     monkeypatch.setattr(
         runners._mpc, "discover_shard_rows",
-        lambda *a, **kw: [{"href": "h", "dst": "d", "band": "B04", "tile_id": "T33UWP",
+        lambda *a, **kw: [{"href": "h", "dst": "d", "band": "B04", "tile_id": "T33UWP", "acquisition_key": "T33UWP",
                             "collection": "S2A", "timestamp": "2018-06-01", "s3url": "",
                             "cloud_cover": 0.0, "offset": 0, "nodata": 0,
                             "geometry": "POINT (0 0)"}],
@@ -794,7 +806,7 @@ def test_run_aml_download_mpc_rejects_creds_url_end_to_end(fake_aml_command, mon
 # what a call means (spec 36 D3).
 
 def _rows_over_n_tiles(n: int) -> list[dict]:
-    return [{"href": f"h{i}", "dst": f"d{i}", "band": "B04", "tile_id": f"T{i:05d}",
+    return [{"href": f"h{i}", "dst": f"d{i}", "band": "B04", "tile_id": f"T{i:05d}", "acquisition_key": f"T{i:05d}",
              "collection": "S2A", "timestamp": "2018-06-01", "s3url": "",
              "cloud_cover": 0.0, "offset": 0, "nodata": 0,
              "geometry": "POINT (0 0)"} for i in range(n)]
@@ -835,7 +847,7 @@ def test_run_aml_download_mpc_counts_distinct_tiles_not_assets(fake_aml_command,
 
 
 def test_run_aml_download_cdse_enforces_max_tiles_before_dispatch(fake_aml_command, monkeypatch):
-    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: list(range(3)))
+    monkeypatch.setattr(runners, "_cdse_query_catalog", lambda *a, **kw: _tiles(3))
     ml_client = _FakeMLClient(["Completed"])
     with pytest.raises(ValueError, match=r"3 matched tiles exceed max_tiles=2"):
         runners.run_aml_download(

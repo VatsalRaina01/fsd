@@ -289,14 +289,14 @@ def test_ac7_roi_mode_runner_aml_performs_zero_local_fetches(tmp_path, monkeypat
 
     monkeypatch.setattr(runners, "run_aml_inference", _fake_run_aml_inference)
 
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     import pandas as pd
 
     from fsd.catalog import declaration as declaration_module
     from fsd.catalog.declaration import S2_L2A_DECLARATION
 
     gdf = gpd.GeoDataFrame(
-        [{"id": "T_0", "satellite": "sentinel-2-l2a", "timestamp": pd.Timestamp("2018-06-01", tz="UTC"),
+        [{"id": "T_0", "acquisition_key": "T_0", "processing_version": None, "processing_datetime": None, "source": "mpc", "satellite": "sentinel-2-l2a", "timestamp": pd.Timestamp("2018-06-01", tz="UTC"),
           "s3url": "s3://x", "local_folderpath": str(tmp_path), "files": "B04.tif,B08.tif",
           "cloud_cover": 0.0, "geometry": box(0, 0, 1, 1), "area_contribution": 100.0}],
         crs="EPSG:4326",
@@ -345,12 +345,12 @@ def test_ac7_roi_mode_runner_local_still_stages(tmp_path, monkeypatch):
 
     monkeypatch.setattr(runners, "run_local_inference", _fake_run_local_inference)
 
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     from fsd.catalog import declaration as declaration_module
     from fsd.catalog.declaration import S2_L2A_DECLARATION
 
     gdf = gpd.GeoDataFrame(
-        [{"id": "T_0", "satellite": "sentinel-2-l2a", "timestamp": pd.Timestamp("2018-06-01", tz="UTC"),
+        [{"id": "T_0", "acquisition_key": "T_0", "processing_version": None, "processing_datetime": None, "source": "mpc", "satellite": "sentinel-2-l2a", "timestamp": pd.Timestamp("2018-06-01", tz="UTC"),
           "s3url": "s3://x", "local_folderpath": str(tmp_path), "files": "B04.tif,B08.tif",
           "cloud_cover": 0.0, "geometry": box(0, 0, 1, 1), "area_contribution": 100.0}],
         crs="EPSG:4326",

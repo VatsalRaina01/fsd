@@ -2,7 +2,10 @@
 
 Spec: specs/02-catalog.md
 
-Columns: id (unique), collection (STAC collection id, e.g. "sentinel-2-l2a" -- spec 58 D12;
+Columns: id (unique; the **canonical granule name** since spec 59 D3), acquisition_key
+(identity of the physical observation, spec 59 D4), processing_version / processing_datetime
+(spec 59 D8; null when the provider exposes none), source (comma-joined sorted set of the
+sources that contributed files, unioned on append), collection (STAC collection id, e.g. "sentinel-2-l2a" -- spec 58 D12;
 renamed from "satellite", which always held this), timestamp (UTC), s3url,
 local_folderpath, files (comma-joined band filenames), cloud_cover, offset (the additive
 declared radiometric offset for radiometry bands; 0 when a collection has no such concept),
@@ -44,15 +47,28 @@ COLUMNS = [
     "offset",
     "scale",
     "nodata",
+    "acquisition_key",
+    "processing_version",
+    "processing_datetime",
+    "source",
     "properties",
     "geometry",
 ]
 
 CRS = "EPSG:4326"
 
+# The columns spec 59 D8 added; a catalog lacking them predates the archive layout and is
+# refused on read (older schema gaps keep their own failure at the point of use).
+SPEC59_COLUMNS = ("acquisition_key", "processing_version", "processing_datetime", "source")
+
+# Spec 59 D6: `properties_filter` names that resolve to a first-class column, never to a
+# same-named key inside the `properties` JSON.
+RESERVED_FILTER_COLUMNS = ("source", "processing_version")
+
 
 def _union_files(*files_values: str) -> str:
-    """Union comma-joined band-filename lists into one sorted, deduped string."""
+    """Union comma-joined band-filename lists into one sorted, deduped string
+    (also used for the comma-joined `source` set -- spec 59 D8)."""
     names: set[str] = set()
     for value in files_values:
         if value:
@@ -136,17 +152,30 @@ def filter_by_properties(
     carried_keys: set[str] = set()
     for props in parsed:
         carried_keys.update(props)
-    unknown = sorted(k for k in properties_filter if k not in carried_keys)
+    # `source` / `processing_version` are first-class columns (spec 59 D6): reserved, so
+    # they resolve to the column even when `properties` has a same-named key, and are
+    # always "carried" for the unknown-key check.
+    unknown = sorted(k for k in properties_filter
+                     if k not in carried_keys and k not in RESERVED_FILTER_COLUMNS)
     if unknown:
         raise ValueError(
             f"properties_filter key(s) {unknown} are not carried by any row in this "
-            f"catalog; keys this catalog carries: {sorted(carried_keys)}."
+            f"catalog; keys this catalog carries: "
+            f"{sorted(carried_keys | set(RESERVED_FILTER_COLUMNS))}."
         )
     mask = []
-    for props in parsed:
+    for i, props in enumerate(parsed):
         keep = True
         for key, want in properties_filter.items():
-            if key not in props or str(props[key]) not in properties_filter_values(want):
+            wanted = properties_filter_values(want)
+            if key in RESERVED_FILTER_COLUMNS:
+                cell = gdf[key].iloc[i] if key in gdf.columns else None
+                have = [] if cell is None or (not isinstance(cell, str) and pd.isna(cell)) \
+                    else str(cell).split(",") if key == "source" else [str(cell)]
+                ok = any(v in have for v in wanted)
+            else:
+                ok = key in props and str(props[key]) in wanted
+            if not ok:
                 keep = False
                 break
         mask.append(keep)
@@ -211,6 +240,18 @@ class TileCatalog:
             new["nodata"] = 0
         if "properties" not in new.columns:
             new["properties"] = "{}"
+        # Spec 59 D8. The sources always supply these; a hand-built row (a test, an
+        # fsd-agnostic top-up) that does not is its own acquisition with no version and
+        # no source -- the "any other" collection row of D3/D4.
+        if "acquisition_key" not in new.columns:
+            new["acquisition_key"] = new["id"]
+        if "processing_version" not in new.columns:
+            new["processing_version"] = None
+        if "processing_datetime" not in new.columns:
+            new["processing_datetime"] = pd.NaT
+        if "source" not in new.columns:
+            new["source"] = ""
+        new["processing_datetime"] = pd.to_datetime(new["processing_datetime"], utc=True)
 
         if fs.exists(self.filepath):
             existing_stamp = self._existing_stamp()
@@ -233,10 +274,18 @@ class TileCatalog:
             lambda s: _union_files(*s.tolist())
         )
 
+        # `source` is a set of the sources that contributed files, unioned like `files`
+        # (spec 59 D8): the same canonical name means the same processing, so the bytes
+        # are interchangeable and the catalog need not say which band came from where.
+        merged_sources = combined.groupby("id")["source"].agg(
+            lambda s: _union_files(*s.tolist())
+        )
+
         # Keep the last (newest) row per id for every other column...
         deduped = combined.drop_duplicates(subset="id", keep="last").set_index("id")
-        # ...then overwrite `files` with the unioned value.
+        # ...then overwrite `files` and `source` with the unioned values.
         deduped["files"] = merged_files
+        deduped["source"] = merged_sources
         out = deduped.reset_index()
 
         out = gpd.GeoDataFrame(out[COLUMNS], geometry="geometry", crs=CRS)
@@ -254,6 +303,14 @@ class TileCatalog:
         wrong radiometry.
         """
         gdf = fs.read_parquet(self.filepath)
+        missing = [c for c in SPEC59_COLUMNS if c not in gdf.columns]
+        if missing:
+            raise ValueError(
+                f"TileCatalog.read: {self.filepath!r} predates the current catalog schema "
+                f"(missing column(s) {missing}; spec 59 D8 / spec 58 D12). There is no "
+                "compatibility shim -- re-download into the new archive layout "
+                "({root}/{collection}/YYYY/MM/DD/{granule}/)."
+            )
         gdf["timestamp"] = pd.to_datetime(gdf["timestamp"], utc=True)
         return gdf
 

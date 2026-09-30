@@ -30,7 +30,12 @@ Every source's `download(...)` does three things, in order, for each unit of wor
      is what makes the artifact *self-describing* instead of relying on ambient config.
      `stamp_or_reencode` falls back to a GDAL-COG-driver re-encode if the in-place tag
      edit breaks COG validity (a GDAL/source-dependent edge case, not the common path).
-3. **put** — write the normalized artifact to `root_folderpath` (local or blob,
+3. **put** — write the normalized artifact to `root_folderpath` (local or blob; **into
+   `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`, spec 59 D2/D3** — build the
+   path with `fsd.sources._granules.granule_folderpath` and get the name, acquisition key
+   and processing facts from `fsd.collections.naming.granule_info`, never from the provider
+   id; **stamp, then publish** — stage as `<dst>.stage`, stamp it there, `os.replace` it onto
+   `<dst>`, so a final-named file is always a stamped one, spec 59 D10;
    `fsd.storage.fs.transfer`/`fs.put`) and append a row to the `TileCatalog` (below),
    **stamping the source's `CollectionDeclaration` at that `catalog.append(...)` call**
    (spec 35 §4) — this is a **required** step, not optional: `TileCatalog.append(rows,
@@ -51,7 +56,10 @@ Every source's `download(...)` appends rows shaped like `fsd.catalog.catalog.COL
 
 | Column | Meaning | Who sets it |
 |---|---|---|
-| `id` | unique tile/granule id | source |
+| `id` | the **canonical granule name** (spec 59 D3): every processing field kept, every provider-specific one dropped, so the same granule from two sources is one row | source, via `collections.naming` |
+| `acquisition_key` | the canonical name minus its processing fields — the physical observation (D4); detects duplicates, never names a folder | source, via `collections.naming` |
+| `processing_version` / `processing_datetime` | e.g. `"05.00"` / UTC generation time; null when the provider exposes none (D8) | source |
+| `source` | comma-joined sorted set of sources that contributed files; `TileCatalog.append` unions it like `files` | source (`"mpc"`, `"cdse"`) |
 | `collection` | STAC collection id | source |
 | `timestamp` | acquisition time (UTC) | source |
 | `s3url` | informational source href | source |
@@ -61,6 +69,11 @@ Every source's `download(...)` appends rows shaped like `fsd.catalog.catalog.COL
 | `offset` | additive radiometric offset for reflectance bands (spec 34 §1) | source; **0 for a source with no such concept** |
 | `nodata` | declared nodata value | source; **defaults to 0** for the S2 convention — do not assume 0 for an arbitrary new source (spec 34 §1c, ClearSKY warning) |
 | `geometry` | footprint, EPSG:4326 | source |
+
+A collection with no parser in `fsd/collections/` gets the "any other" row: its item id is
+the canonical name and the acquisition key, it publishes no version, and cross-processing
+detection is off for it. A catalog missing the four spec 59 columns is refused on read
+(`re-download`; no shim).
 
 `offset`/`nodata` retire spec 32's bespoke `boa_add_offset` column — **there is no
 back-compat shim** (spec 34 `[G4]`): `TileCatalog.read()` does not backfill a legacy

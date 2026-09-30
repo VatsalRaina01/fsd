@@ -239,7 +239,7 @@ def _run_folderpaths_of_two_calls(tmp_path, monkeypatch, **extra):
     monkeypatch.setattr(api._create_datacube, "run_create_datacube", fake_run_create_datacube)
     monkeypatch.setattr(api, "flatten_training_data", fake_flatten_training_data)
 
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     cat.parent.mkdir(parents=True, exist_ok=True)
     cat.write_text("")
     for _ in range(2):

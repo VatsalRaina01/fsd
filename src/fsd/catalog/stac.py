@@ -21,6 +21,7 @@ import json
 import os
 import re
 
+import pandas as pd
 import pystac
 import shapely.geometry
 from pystac.extensions.classification import Classification, ClassificationExtension
@@ -43,6 +44,7 @@ _COLLECT_THREADS = 16
 
 # STAC extension URIs we populate beyond eo/proj (added via their helper classes).
 _GRID_EXT = "https://stac-extensions.github.io/grid/v1.1.0/schema.json"
+_PROCESSING_EXT = "https://stac-extensions.github.io/processing/v1.2.0/schema.json"
 
 # MGRS tile in an S2 product id, e.g. "..._T37PBP_..." -> zone=37, band=P, square=BP.
 _MGRS_RE = re.compile(r"_T(\d{2})([C-X])([A-Z]{2})_")
@@ -216,6 +218,19 @@ def tile_catalog_to_items(
         )
 
         EOExtension.ext(item, add_if_missing=True).cloud_cover = float(row["cloud_cover"])
+
+        # Spec 59 D8: the catalog's processing columns are the STAC processing extension's
+        # `processing:version` / `processing:datetime` (UTC), when the provider exposed them.
+        version = row.get("processing_version")
+        if version is not None and not pd.isna(version):
+            item.properties["processing:version"] = str(version)
+        pdt = row.get("processing_datetime")
+        if pdt is not None and not pd.isna(pdt):
+            item.properties["processing:datetime"] = (
+                pd.Timestamp(pdt).tz_convert("UTC").strftime("%Y-%m-%dT%H:%M:%SZ"))
+        if "processing:version" in item.properties or "processing:datetime" in item.properties:
+            if _PROCESSING_EXT not in item.stac_extensions:
+                item.stac_extensions.append(_PROCESSING_EXT)
 
         mgrs = _parse_mgrs(str(row["id"]))
         if mgrs is not None:
@@ -490,11 +505,15 @@ def items_to_rows(items: list[pystac.Item]):
             "local_folderpath": folders.pop() if len(folders) == 1 else ",".join(sorted(folders)),
             "files": ",".join(filenames),
             "cloud_cover": item.properties.get("eo:cloud_cover"),
+            "processing_version": item.properties.get("processing:version"),
+            "processing_datetime": item.properties.get("processing:datetime"),
             "offset": offset,
             "scale": scale,
             "nodata": nodata,
             "properties": json.dumps({k: v for k, v in item.properties.items()
-                                       if k not in ("eo:cloud_cover", "grid:code")}),
+                                       if k not in ("eo:cloud_cover", "grid:code",
+                                                    "processing:version",
+                                                    "processing:datetime")}),
             "geometry": shapely.geometry.shape(item.geometry),
         })
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
