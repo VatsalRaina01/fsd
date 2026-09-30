@@ -45,7 +45,8 @@ from fsd.storage import fs
 from fsd.workflows import create_datacube as _create_datacube
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "data", "tutorial")
-CATALOG_PATH = os.path.join(FIXTURE_DIR, "catalog.parquet")
+# Spec 59 D2/D5: the fixture IS an archive root -- `{root}/{collection}/catalog.parquet`.
+CATALOG_PATH = os.path.join(FIXTURE_DIR, "sentinel-2-l2a", "catalog.parquet")
 FIELDS_PATH = os.path.join(FIXTURE_DIR, "fields.geojson")
 ROI_PATH = os.path.join(FIXTURE_DIR, "roi.geojson")
 
@@ -71,19 +72,20 @@ def _derived_offset_from_id(granule_id: str) -> int | None:
     return -1000 if (int(m.group(1)), int(m.group(2))) >= (4, 0) else 0
 
 
-def _spec59_catalog(tmp_path) -> str:
-    """The committed fixture predates spec 59's catalog schema, and the verbs now expect
-    `{root}/{collection}/catalog.parquet` -- so give each test a copy in that layout with the
-    four D8 columns added (one acquisition per granule, no version, source mpc). The imagery
-    stays where it is: `local_folderpath` is unchanged."""
+def test_fixture_is_spec59_layout():
+    """The committed fixture is already in spec 59's layout (D2 folders, D8 columns), so no
+    test converts a copy of it."""
     gdf = fs.read_parquet(CATALOG_PATH)
-    gdf["acquisition_key"] = gdf["id"]
-    gdf["processing_version"] = None
-    gdf["processing_datetime"] = None
-    gdf["source"] = "mpc"
-    fp = str(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
-    fs.write_parquet(fp, gdf)
-    return fp
+    for col in ("acquisition_key", "processing_version", "processing_datetime", "source"):
+        assert col in gdf.columns, col
+    for _, row in gdf.iterrows():
+        d = row["timestamp"]
+        expected = os.path.join(
+            "tests", "data", "tutorial", "sentinel-2-l2a",
+            f"{d.year:04d}", f"{d.month:02d}", f"{d.day:02d}", row["id"],
+        )
+        assert row["local_folderpath"] == expected
+        assert os.path.isdir(row["local_folderpath"])
 
 
 # --- acceptance test 1: structural -------------------------------------------
@@ -184,7 +186,7 @@ def test_pipeline_create_training_data_train_and_infer(tmp_path):
 
     export_folderpath = str(tmp_path / "training")
     td = fsd.create_training_data(
-        label_polygons=FIELDS_PATH, catalog_filepath=_spec59_catalog(tmp_path),
+        label_polygons=FIELDS_PATH, catalog_filepath=CATALOG_PATH,
         startdate=startdate, enddate=enddate, mosaic_days=MOSAIC_DAYS,
         bands=BANDS, id_col="fid", label_col="label",
         export_folderpath=export_folderpath,
@@ -218,7 +220,7 @@ def test_pipeline_create_training_data_train_and_infer(tmp_path):
     infer_run_folder = str(tmp_path / "infer_build")
     csv_filepath = os.path.join(infer_run_folder, "input.csv")
     _create_datacube.run_create_datacube(
-        catalog_filepath=_spec59_catalog(tmp_path), timestamp_col="timestamp",
+        catalog_filepath=CATALOG_PATH, timestamp_col="timestamp",
         shapefilepath=ROI_PATH, id_col="id", run_folderpath=infer_run_folder,
         startdate=startdate, enddate=enddate, bands=BANDS,
         mosaic_days=MOSAIC_DAYS, csv_filepath=csv_filepath, label_col=None, cores=1,
@@ -276,7 +278,7 @@ def test_verify_adapter_real_fixture_local_runner(tmp_path):
 
     export_folderpath = str(tmp_path / "verify_adapter")
     result = fsd.verify_adapter(
-        _TutorialConstantAdapter(), roi=ROI_PATH, catalog_filepath=_spec59_catalog(tmp_path),
+        _TutorialConstantAdapter(), roi=ROI_PATH, catalog_filepath=CATALOG_PATH,
         startdate=startdate, enddate=enddate, mosaic_days=MOSAIC_DAYS, bands=BANDS,
         export_folderpath=export_folderpath, runner="local",
     )
@@ -295,7 +297,7 @@ def test_verify_adapter_real_fixture_local_runner(tmp_path):
     # straight to inference -- no rebuild (cube file untouched).
     cube_mtime = os.path.getmtime(os.path.join(export_folderpath, "datacube.npy"))
     result2 = fsd.verify_adapter(
-        _TutorialConstantAdapter(), roi=ROI_PATH, catalog_filepath=_spec59_catalog(tmp_path),
+        _TutorialConstantAdapter(), roi=ROI_PATH, catalog_filepath=CATALOG_PATH,
         startdate=startdate, enddate=enddate, mosaic_days=MOSAIC_DAYS, bands=BANDS,
         export_folderpath=export_folderpath, runner="local",
     )

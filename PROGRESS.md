@@ -54,7 +54,11 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
    `tests/data/tutorial/` fixture still use the pre-59 catalog (flat folders, no acquisition
    columns) -- `tests/test_tutorial_fixture.py` converts a per-test copy into
    `{root}/sentinel-2-l2a/catalog.parquet`; the tutorial's `catalog_filepath=` line will fail D5's
-   preflight until D12 repoints it. Notebooks untouched. The full Austria re-download (P2 part 2,
+   preflight until D12 repoints it. Notebooks untouched. **D12 DONE 2026-10-01 (branch
+   `worktree-spec59-d12`, awaiting review/merge):** fixture re-laid to spec 59 (`tests/data/tutorial/
+   sentinel-2-l2a/YYYY/MM/DD/<id>/` + catalog, no converter), README/how-tos/tutorial/demos/AML notebook
+   repointed to ONE shared archive; `docs_kwarg_sweep.py` = 0 stale. (The remaining text of this item is
+   the pre-D12 state.) The full Austria re-download (P2 part 2,
    ~67 GB) needs `tests/outputs/demo_e2e/imagery` (63 GB, pre-59 layout, unreadable by `main`)
    deleted first -- disk had 26 GB free on 2026-09-30.
    Implementation notes worth knowing: one shared selector `fsd/catalog/processing.py` serves

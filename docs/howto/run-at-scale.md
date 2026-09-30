@@ -63,7 +63,7 @@ runner_kwargs = {
 
 catalog = fsd.download(
     roi="your_roi.geojson", startdate=..., enddate=..., bands=[...],
-    dst_folderpath=os.environ["AZ_ROOT"] + "/imagery",
+    dst_folderpath=os.environ["AZ_ROOT"] + "/imagery",   # ONE shared archive -- re-used by every run
     source="mpc",                # anonymous -- no secret to provision on the node (TODO #49)
     max_tiles=500,
     runner="aml", runner_kwargs=runner_kwargs,

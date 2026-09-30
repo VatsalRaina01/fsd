@@ -9,6 +9,12 @@ carried over (renames, restructures, behavioral tweaks). Pure removals go in
 Behaviour kept-but-changed by spec 59 P1 (ADR 0032: the archive is lossless; duplicates raise,
 they never replace):
 
+- **Notebooks, demos, how-tos and the tutorial use ONE shared archive (D12, 2026-10-01).** Local:
+  `tests/outputs/imagery` (demos) / `data/imagery` (user docs); blob: `{AZ_ROOT}/imagery`, no longer
+  under the per-run root. Catalog = `{archive}/{collection}/catalog.parquet`. The committed tutorial
+  fixture `tests/data/tutorial/` is now a spec-59 archive root (`sentinel-2-l2a/YYYY/MM/DD/<id>/`,
+  catalog moved to `sentinel-2-l2a/catalog.parquet`, four D8 columns added with `source="mpc"`,
+  `processing_version=None` because the fixture's MPC ids carry no baseline token).
 - **`download`'s `dst_folderpath` is the archive root.** Granules land in
   `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/` and the catalog is
   `{root}/{collection}/catalog.parquet` (the path `download` returns). Before: flat

@@ -46,7 +46,7 @@ import estimate as _estimate  # noqa: E402  (demos/estimate.py — the no-downlo
 from adapters import DemoRF  # noqa: E402
 
 import fsd  # noqa: E402
-from fsd import grid  # noqa: E402
+from fsd import config, grid  # noqa: E402
 from fsd.catalog.catalog import TileCatalog  # noqa: E402
 from fsd.model import bundle  # noqa: E402
 from fsd.sources import cdse  # noqa: E402
@@ -90,7 +90,9 @@ CLASS_COLORS = {
 }
 
 OUTDIR = os.path.join(_HERE, "..", "tests/outputs/demo_e2e")       # heavy artifacts (gitignored)
-DATA_DIR = os.path.join(OUTDIR, "imagery")                        # downloaded COGs + catalog.parquet
+# Spec 59 D12: ONE shared archive for every run (not under OUTDIR); the catalog lives at
+# `{DATA_DIR}/{collection}/catalog.parquet` (D5).
+DATA_DIR = os.path.join(_HERE, "..", "tests/outputs/imagery")
 FIGDIR = os.path.join(_HERE, "figures")                           # small PNGs (committable)
 
 STEP_TIMES: list = []   # [(label, seconds), ...] — filled by timed_step, dumped at the end
@@ -174,7 +176,7 @@ def step_tiling(fast, roi_run_fp):
 def step_download(creds, download_roi_fp):
     log("2. DOWNLOAD S2 L2A (probe throughput → resume-loop → jp2/COG timing)")
     os.makedirs(DATA_DIR, exist_ok=True)
-    catalog_fp = os.path.join(DATA_DIR, "catalog.parquet")
+    catalog_fp = os.path.join(DATA_DIR, config.SATELLITE_S2L2A, "catalog.parquet")
 
     # 2a) single-threaded baseline probe (achievable CDSE MB/s right now).
     print("  2a) baseline throughput probe (1 file, 1 thread) ...", flush=True)

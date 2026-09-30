@@ -80,6 +80,7 @@ TRAIN_FP = os.path.join(ROOT, "shapefiles/AT_2018_TRAIN.geojson")
 ID_COL = "fid"
 LABEL_COL = "crop"
 BANDS = ["B04", "B08", "B8A", "SCL"]
+COLLECTION = config.SATELLITE_S2L2A   # the download's collection: names the archive subfolder
 # SCL mask classes are declared on the sentinel-2-l2a CollectionDeclaration now (spec 58
 # D3), not a verb parameter -- they happen to already be this list, so no behavior change.
 # `collection=` (default "sentinel-2-l2a") and `properties_filter=` (spec 58 D9) stay at
@@ -694,9 +695,12 @@ def _assert_archive_trustworthy(catalog_fp: str, dst_folderpath: str) -> dict:
             "n_offset_baseline_crosschecked": n_baseline_checked}
 
 
-def step_download(ml_client, root: str) -> dict:
-    dst_folderpath = f"{root.rstrip('/')}/imagery"
-    catalog_fp = f"{dst_folderpath}/catalog.parquet"
+def step_download(ml_client, root: str, az_root: str) -> dict:
+    # Spec 59 D12: imagery goes to ONE shared archive at `{AZ_ROOT}/imagery`, not under this
+    # run's `root`, so a repeat run (or the next demo) downloads nothing it already holds.
+    # One catalog per collection directory: `{archive}/{collection}/catalog.parquet` (D5).
+    dst_folderpath = f"{az_root.rstrip('/')}/imagery"
+    catalog_fp = f"{dst_folderpath}/{COLLECTION}/catalog.parquet"
     roi_url = f"{root.rstrip('/')}/_inputs/AT_ROI.geojson"
     with open(ROI_FP, "rb") as src, fs.open(roi_url, "wb") as dst:
         dst.write(src.read())
@@ -1024,7 +1028,7 @@ def main(argv=None):
         with open(marker, "w") as f:
             f.write(run_id)
 
-        dl = demo.run_step("2_download", step_download, ml_client, root)
+        dl = demo.run_step("2_download", step_download, ml_client, root, az_root)
         # After the result is on disk (so a resume skips the download), before three more
         # dispatches spend ~20 min producing telemetry that cannot answer D11.
         _assert_dispatch_telemetry_complete(dl.get("dispatch_timings") or [],
