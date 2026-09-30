@@ -95,6 +95,7 @@ def run_roi(
     vault_url: str | None = None,
     secret_name: str | None = None,
     creds_url: str | None = None,
+    processing: str = "latest",
 ) -> dict:
     """`--roi` mode: the whole-ROI CDSE job.
 
@@ -116,6 +117,7 @@ def run_roi(
     result = cdse.download(
         roi, start, end, bands, dst, catalog_obj, creds,
         max_tiles=max_tiles, max_cloudcover=max_cloudcover, cog=cog, progress=False,
+        processing=processing,
     )
     work_end_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
     status = _status_from_download_result(
@@ -130,8 +132,12 @@ def run_roi(
 def run_shard(*, shard_url: str, dst: str, catalog: str, status_url: str) -> dict:
     """`--shard` mode: one of N per-shard MPC jobs over a pre-discovered,
     pre-partitioned asset-row CSV. No credentials needed: MPC is anonymous."""
+    # Identity strings must survive the CSV round trip: a bare read_csv turns the S2
+    # baseline "05.00" into the float 5.0 (spec 59 D8: a normalized string).
     with fs.open(shard_url, "r") as f:
-        rows = pd.read_csv(f).to_dict("records")
+        rows = pd.read_csv(
+            f, dtype={"tile_id": str, "acquisition_key": str, "processing_version": str},
+        ).to_dict("records")
 
     catalog_obj = TileCatalog(catalog)
     work_start_at = _dt.datetime.now(_dt.timezone.utc).isoformat()
@@ -162,6 +168,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--max-tiles", type=int)
     p.add_argument("--max-cloudcover", type=float, default=None)
     p.add_argument("--no-cog", action="store_true")
+    p.add_argument("--processing", default="latest",
+                   help="'latest' or a PEP 440 specifier, e.g. '>=05.00' (spec 59 D7); "
+                        "--roi mode (CDSE) only -- MPC selects on the driver")
     p.add_argument("--vault-url")
     p.add_argument("--secret-name")
     p.add_argument("--creds-url", help="blob JSON CDSE creds location (D5 REVISED, mutually "
@@ -182,7 +191,7 @@ def main(argv=None) -> None:
             max_tiles=args.max_tiles, status_url=args.status_url,
             max_cloudcover=args.max_cloudcover, cog=not args.no_cog,
             vault_url=args.vault_url, secret_name=args.secret_name,
-            creds_url=args.creds_url,
+            creds_url=args.creds_url, processing=args.processing,
         )
     else:
         status = run_shard(shard_url=args.shard, dst=args.dst, catalog=args.catalog,

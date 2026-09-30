@@ -67,12 +67,16 @@ def _catalog(tmp_path, n_cell_a=3, n_cell_b=1):
     for `_filter_gdf`'s date+overlap logic (geometry + timestamp)."""
     rows = []
     for i in range(n_cell_a):
-        rows.append({"geometry": shapely.geometry.box(0, 0, 1, 1), "timestamp": JAN1})
+        rows.append({"id": f"a{i}", "acquisition_key": f"a{i}", "processing_version": None,
+                     "processing_datetime": None, "source": "mpc",
+                     "geometry": shapely.geometry.box(0, 0, 1, 1), "timestamp": JAN1})
     for i in range(n_cell_b):
-        rows.append({"geometry": shapely.geometry.box(1, 0, 2, 1), "timestamp": JAN1})
+        rows.append({"id": f"b{i}", "acquisition_key": f"b{i}", "processing_version": None,
+                     "processing_datetime": None, "source": "mpc",
+                     "geometry": shapely.geometry.box(1, 0, 2, 1), "timestamp": JAN1})
     gdf = gpd.GeoDataFrame(rows, crs="EPSG:4326")
     gdf["timestamp"] = pd.to_datetime(gdf["timestamp"], utc=True)
-    fp = str(tmp_path / "catalog.parquet")
+    fp = str(tmp_path / "sentinel-2-l2a" / "catalog.parquet")
     fs.write_parquet(fp, gdf)
     return fp
 

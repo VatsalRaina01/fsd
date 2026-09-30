@@ -4,6 +4,45 @@ Living record of how `fsd` differs from the legacy repos for behavior that **is*
 carried over (renames, restructures, behavioral tweaks). Pure removals go in
 `DROPPED.md`.
 
+## Imagery archive layout, granule identity and `processing=` (spec 59, 2026-09-30)
+
+Behaviour kept-but-changed by spec 59 P1 (ADR 0032: the archive is lossless; duplicates raise,
+they never replace):
+
+- **`download`'s `dst_folderpath` is the archive root.** Granules land in
+  `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/` and the catalog is
+  `{root}/{collection}/catalog.parquet` (the path `download` returns). Before: flat
+  `{root}/{item.id}/` for MPC, the EODATA mirror `Sentinel-2/MSI/L2A/...` for CDSE, and one
+  `{root}/catalog.parquet`. The date level comes from the granule name (HLS: day-of-year in
+  the id), never the STAC `datetime`.
+- **Catalog `id` is now the canonical granule name** (S2: `s2:product_uri` minus `.SAFE`; MPC's
+  own id drops the baseline field), so the same product from MPC and CDSE is one folder and one
+  row. New columns `acquisition_key`, `processing_version`, `processing_datetime`, `source`
+  (a set, unioned on append). A pre-59 catalog raises on read, naming the columns and
+  "re-download" -- no shim.
+- **`create_training_data` / `run_inference` / `verify_adapter` check the catalog's directory**
+  is named for `collection=`; `create_training_data(download=True)` downloads into the
+  catalog's **grandparent**.
+- **New `processing=`** (one grammar, two decision points). `download` (default `"latest"`,
+  `None` refused) chooses what to fetch per acquisition; the build verbs (default `None`) choose
+  what to use, and `None` **raises** on an acquisition present in more than one processing. A
+  PEP 440 specifier (`">=05.00"`) is refused for a collection that publishes no version
+  (S1 RTC). It joins the cube path only when not `None`, so no existing cube path moves.
+- **CDSE now deduplicates** per acquisition like MPC always did (spec 33's
+  `_dedupe_reprocessed_items` is replaced by the shared selector; MPC selects identically).
+  Every skipped granule is printed, and so is any acquisition a download leaves holding more than
+  one processing.
+- **`properties_filter`** also matches the reserved first-class columns `source` and
+  `processing_version`.
+- **Stamp, then publish (closes #74).** MPC and CDSE stage a band as `<dst>.stage`, stamp it, then
+  `os.replace` it onto `<dst>`: a final-named `.tif` is always stamped. Before, the stamp edited
+  the published file in place, and a kill or a CDSE stamp exception left an unstamped file the
+  `size > 0` skip trusted forever.
+- **Provenance** (`ids`/`processing_version`/`source`) is recorded in each cube's
+  `metadata.pickle.npy` and (versions and sources only) in `_flatten_stamp.json`; it is metadata,
+  never identity. `_flatten_identity` gains a `processing` param (a missing `input.csv` column
+  counts as `None`).
+
 ## MPC hrefs are signed per transfer, not at discovery (2026-09-05)
 
 `sources.mpc.download` used to sign every asset href during STAC discovery

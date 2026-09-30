@@ -55,6 +55,25 @@ def _make_catalog(tmp_path):
     return gdf, shape
 
 
+
+def test_build_datacube_records_provenance_in_the_cube_metadata(tmp_path):
+    """Spec 59 AC14 through the real builder: the rows a cube used -> D9's provenance."""
+    catalog, shape = _make_catalog(tmp_path)
+    catalog["collection"] = "sentinel-2-l2a"
+    catalog["processing_version"] = catalog["id"].map({"tile_t1": "02.12", "tile_t2": "05.00"})
+    catalog["source"] = catalog["id"].map({"tile_t1": "mpc", "tile_t2": "cdse,mpc"})
+    out = tmp_path / "cube"
+    builder.build_datacube(
+        catalog_subset=catalog, shape_gdf=shape,
+        startdate=datetime.datetime(2018, 5, 31), enddate=datetime.datetime(2018, 7, 2),
+        bands=["B04", "B08", "SCL"], mosaic_days=20,
+        export_folderpath=str(out), if_missing_files=None,
+    )
+    md = fs.load_npy(str(out / "metadata.pickle.npy"), allow_pickle=True)[()]
+    assert md["provenance"] == {"sentinel-2-l2a": {
+        "ids": ["tile_t1", "tile_t2"], "processing_version": ["02.12", "05.00"],
+        "source": ["cdse", "mpc"]}}
+
 def test_build_datacube_end_to_end(tmp_path):
     catalog, shape = _make_catalog(tmp_path)
     out = tmp_path / "cube"

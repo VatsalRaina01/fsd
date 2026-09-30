@@ -24,14 +24,34 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
    bug-1 fix, this `PROGRESS.md` update, the notebook-guard change, and their merges). Until then
    `EnterWorktree` (which branches from `origin/main`) misses them, so make worktrees by hand:
    `git worktree add -b <branch> .claude/worktrees/<name> main`.
-3. **Implement [spec 59](specs/59-imagery-archive-layout.md) P1** — CURRENT, THE ORDER step 9.
-   **SIGNED OFF 2026-09-30** (user). Grilled 2026-09-29 (D1–D12), amended before sign-off: D7
-   (`download` takes `processing=`, default `"latest"`) and D10 (the byte copy was already atomic —
-   the real #74 defect is stamping *after* the rename; fix = stamp-then-publish via `<dst>.stage`).
-   The archive is lossless (ADR 0032): folders are named by the *canonical granule name*, two
-   processings coexist, a build over both raises, `processing=` selects per acquisition. P1 is
-   network-free (Sonnet session, `/effort medium`, against §10's build order); then the P2
-   re-download run-book. Next spec after 59: **#101** (train-vs-inference processing guard).
+3. **[Spec 59](specs/59-imagery-archive-layout.md) P1 — REVIEWED + MERGED 2026-09-30** (`--no-ff`,
+   branch `spec59-p1`: implementation `5918850` + review fixes `5d0f074`; find the merge with
+   `git log --merges -1`). Opus review on two axes (Standards, Spec) since `16b88d7`. **One real bug
+   fixed:** the MPC AML shard CSV round trip read `processing_version` `"05.00"` back as the float
+   `5.0` (`workflows/download.run_shard`), so an AML download into an archive a local download had
+   written failed the parquet append (`ArrowTypeError`), and `properties_filter` on the version never
+   matched. Also fixed: HLS day-of-year 000/366-in-a-non-leap-year now raises; the four D7 source
+   helpers duplicated in `mpc.py`/`cdse.py` now live once in `sources/_granules.py`; AC7/AC12/AC14
+   tests tightened (AC14 now goes through the real `build_datacube`). Judged faithful to the spec,
+   no change: the selector's tie-only-at-the-top rule, `TileCatalog.read` checking only the four new
+   columns, `build_datacube` selecting over the rows it is handed (it has no window filter of its
+   own), `processing` always in the flatten identity (as `properties_filter` already was).
+   `pytest -q` **1218 passed / 105 skipped**, `ruff` clean.
+   **Pending (user):** push `main`, then `gh issue close 74` citing the merge hash (not closed yet:
+   the hash would not resolve on GitHub before the push).
+4. **Spec 59 P2:** the re-download run-book + D12's notebook/doc repointing (Austria S2 + the S1
+   blob imagery). Next spec after 59: **#101** (train-vs-inference processing guard).
+   What P1 left for P2 on purpose: `docs/tutorial.md` and the committed
+   `tests/data/tutorial/` fixture still use the pre-59 catalog (flat folders, no acquisition
+   columns) -- `tests/test_tutorial_fixture.py` converts a per-test copy into
+   `{root}/sentinel-2-l2a/catalog.parquet`; the tutorial's `catalog_filepath=` line will fail D5's
+   preflight until D12 repoints it. Notebooks untouched. Also unverified (spec §5 AC 20): whether a
+   blob mid-put kill leaves a partial blob visible under the final name -- the run-book checks it.
+   Implementation notes worth knowing: one shared selector `fsd/catalog/processing.py` serves
+   `download` (D7) and the builds (D6); granule parsers live in `fsd/collections/{s2_l2a,s1_rtc,hls}.py`
+   behind `collections/naming.py` (HLS has parsers but no declaration yet); the venv's editable
+   install points at the MAIN checkout, so run tests from a worktree with
+   `-o pythonpath=src` (RECIPES.md).
 
 Standing open items from P2 (not blocking): **D18 needs amending** (Window A is `s2grid=4772924`,
 not `476da24`, which has no labels within 47.7 km); D17's `nodata=-32768` is decorative (the build

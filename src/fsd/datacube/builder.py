@@ -32,6 +32,7 @@ from rasterio.crs import CRS
 
 from fsd import config
 from fsd.catalog import declaration as declaration_module
+from fsd.catalog import processing as processing_module
 from fsd.catalog.catalog import filter_by_properties
 from fsd.catalog.declaration import (
     MASK_TYPE_CATEGORICAL_CLASSES,
@@ -248,12 +249,18 @@ def flatten_catalog(
     declaration = _resolve_declaration(catalog_gdf, declaration)
     data = {k: [] for k in
             ("id", "filepath", "band", "timestamp", "geometry", "area_contribution",
-             "offset", "nodata", "properties")}
+             "offset", "nodata", "properties", "collection", "acquisition_key",
+             "processing_version", "processing_datetime", "source")}
     for _, row in catalog_gdf.iterrows():
         tile_offset = row.get("offset", 0) or 0
         tile_nodata = row.get("nodata", 0)
         tile_nodata = 0 if tile_nodata is None else tile_nodata
         tile_properties = row.get("properties", "{}") or "{}"
+        # Spec 59 D8: carried through band-flattening so `build_datacube` can apply
+        # D6's per-acquisition `processing=` check and record D9's provenance from the
+        # SAME rows the build assembles from. A hand-built frame without them is its own
+        # acquisition, with no version and no source (cross-processing detection off).
+        tile_acq_key = row.get("acquisition_key") or row["id"]
         for file in str(row["files"]).split(","):
             band = next((file[:-len(e)] for e in _RASTER_EXTS if file.endswith(e)),
                         None)
@@ -272,6 +279,11 @@ def flatten_catalog(
             # from the SAME rows the build actually assembles from -- not a re-read of
             # the pre-flatten catalog, which would risk drifting from what was built.
             data["properties"].append(tile_properties)
+            data["collection"].append(row.get("collection", ""))
+            data["acquisition_key"].append(tile_acq_key)
+            data["processing_version"].append(row.get("processing_version"))
+            data["processing_datetime"].append(row.get("processing_datetime"))
+            data["source"].append(row.get("source", ""))
     flat = gpd.GeoDataFrame(data=data, crs=catalog_gdf.crs)
     declaration_module.to_attrs(flat, declaration)
     return flat
@@ -290,6 +302,7 @@ def build_datacube(
     reference_band: str | None = None,
     declaration: CollectionDeclaration | None = None,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str | None = None,
     export_folderpath: str,
     mosaic_scheme: str = config.MOSAIC_SCHEME,
     njobs: int = 1,
@@ -379,6 +392,18 @@ def build_datacube(
     # being told the rows span two. Resolved AFTER the declaration, whose stamp rides
     # `catalog_subset.attrs` and need not survive a row slice.
     catalog_subset = filter_by_properties(catalog_subset, properties_filter)
+    # Spec 59 D6: the same check runs here as in `create_datacube.setup`, so no entry point
+    # routes around it. `processing=None` RAISES on an acquisition present in more than one
+    # processing (mosaicking both would count it twice); "latest"/a specifier select one.
+    # Idempotent when the rows arrived already selected.
+    selection = processing_module.select_processing(catalog_subset, processing)
+    processing_module.print_selection(selection, prefix="[build]", processing=processing)
+    catalog_subset = selection.kept
+    if processing is not None and len(catalog_subset) == 0:
+        raise ValueError(
+            f"build_datacube: processing={processing!r} left no rows to build from -- no "
+            "acquisition has a processing that satisfies it."
+        )
     _enforce_mosaic_partition(catalog_subset, shape_gdf, declared)
     if declared.native_grid:
         raise NotImplementedError(
@@ -501,6 +526,11 @@ def build_datacube(
         # request, so it goes into the cube's own metadata.
         metadata["actual_start"] = catalog_subset["timestamp"].min()
         metadata["actual_end"] = catalog_subset["timestamp"].max()
+        # Spec 59 D9: which granules and processing versions this cube was built from.
+        # Metadata, not identity (never enters `params_key`); nothing reads it in spec 59 --
+        # it is recorded so #101 can compare training against inference, and so a stale
+        # cube (D11) is diagnosable.
+        metadata["provenance"] = _cube_provenance(catalog_subset)
 
     with _timed(timings, "save"):
         fs.makedirs(export_folderpath)
@@ -528,6 +558,17 @@ def build_datacube(
             n_resampled=len(resample_indices), datacube=datacube, metadata=metadata,
             dst_crs=dst_crs,
         )
+
+
+def _cube_provenance(catalog_subset) -> dict:
+    """D9's provenance block for the rows a cube used (`ids` included: one cube is a
+    bounded set of granules)."""
+    if len(catalog_subset) == 0 or "id" not in catalog_subset.columns:
+        return {}
+    collection = "unknown"
+    if "collection" in catalog_subset.columns and str(catalog_subset["collection"].iloc[0]):
+        collection = str(catalog_subset["collection"].iloc[0])
+    return processing_module.provenance(catalog_subset, collection=collection, with_ids=True)
 
 
 def _save_npy_atomic(path: str, arr, allow_pickle: bool = False) -> None:

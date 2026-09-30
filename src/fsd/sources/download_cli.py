@@ -39,6 +39,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
                    help="CDSE credentials json (default $CDSE_CREDENTIALS_JSON)")
     p.add_argument("--max-tiles", type=int, required=True, help="guardrail (as fsd.download)")
     p.add_argument("--max-cloudcover", type=float, default=None)
+    p.add_argument("--processing", default="latest",
+                   help="which processing to fetch per acquisition: 'latest' (default) or a "
+                        "PEP 440 specifier such as '>=05.00' (spec 59 D7)")
     p.add_argument("--dry-run", action="store_true",
                    help="print the plan (metadata only, zero band bytes) and exit")
     p.add_argument("--stop-file", default=None,
@@ -118,7 +121,7 @@ def _run(args, result_json: str, cog: bool) -> int:
         plan = cdse.plan_download(
             args.roi, pd.to_datetime(args.start), pd.to_datetime(args.end), args.bands,
             catalog_filepath=args.catalog, dst_folderpath=args.dst,
-            max_cloudcover=args.max_cloudcover,
+            max_cloudcover=args.max_cloudcover, processing=args.processing,
         )
         print(cdse.format_download_plan(plan))
         _write_result(result_json, {
@@ -171,7 +174,7 @@ def _run(args, result_json: str, cog: bool) -> int:
         progress=not args.quiet, max_passes=args.max_passes, cog=cog,
         max_convert_procs=args.max_convert_procs, max_staged=args.max_staged,
         max_concurrent_s3=args.max_concurrent_s3,
-        should_stop=should_stop,
+        should_stop=should_stop, processing=args.processing,
     )
     agg = cdse.sum_results(results)
     elapsed_s = time.time() - t0

@@ -663,7 +663,7 @@ def test_create_training_data_forwards_properties_filter_to_its_download(monkeyp
     )
     with pytest.raises(_Stop):
         api.create_training_data(
-            label_polygons=polys, catalog_filepath=str(tmp_path / "data" / "catalog.parquet"),
+            label_polygons=polys, catalog_filepath=str(tmp_path / "data" / "sentinel-1-rtc" / "catalog.parquet"),
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 1),
             mosaic_days=10, bands=["vv", "vh"], id_col="fid", label_col="crop",
             export_folderpath=str(tmp_path / "export"),

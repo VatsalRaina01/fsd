@@ -43,7 +43,7 @@ def test_roi_and_cubes_mutually_exclusive(tmp_path):
     with pytest.raises(fsd.PreflightError, match="not both"):
         fsd.run_inference(
             _Tiny(), inference_datacubes=["x"], output_folderpath=str(tmp_path),
-            roi=ROI, catalog_filepath="c.parquet",
+            roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
             mosaic_days=20, bands=["B04", "B08"],
         )
@@ -69,7 +69,7 @@ def test_roi_preflight_t_mismatch(tmp_path):
     # 2018-06-01..06-11 @ 20d -> T=1, but the model wants T=2 -> refuse before tiling
     with pytest.raises(fsd.PreflightError, match="needs T=2"):
         fsd.run_inference(
-            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 6, 11),
             mosaic_days=20, bands=["B04", "B08"],
         )
@@ -78,7 +78,7 @@ def test_roi_preflight_t_mismatch(tmp_path):
 def test_roi_preflight_missing_bands(tmp_path):
     with pytest.raises(fsd.PreflightError, match="missing model-required"):
         fsd.run_inference(
-            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
             mosaic_days=20, bands=["B04"],                       # missing B08
         )
@@ -108,7 +108,7 @@ def test_roi_preflight_refuses_duplicate_cell_ids(tmp_path, monkeypatch):
 
     with pytest.raises(fsd.PreflightError, match="only 2 distinct cell ids"):
         fsd.run_inference(
-            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
             mosaic_days=20, bands=["B04", "B08"],
         )
@@ -126,7 +126,7 @@ def test_roi_preflight_refuses_an_roi_that_tiles_to_nothing(tmp_path, monkeypatc
 
     with pytest.raises(fsd.PreflightError, match="0 grid cells"):
         fsd.run_inference(
-            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
             mosaic_days=20, bands=["B04", "B08"],
         )
@@ -202,7 +202,7 @@ def test_roi_resume_raises_before_setup_when_cached_ids_differ(tmp_path, monkeyp
 
     with pytest.raises(fsd.PreflightError, match="output_folderpath"):
         fsd.run_inference(
-            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
             mosaic_days=20, bands=["B04", "B08"],
         )
@@ -228,7 +228,7 @@ def test_roi_resume_refusal_does_not_touch_the_run_folder(tmp_path, monkeypatch)
 
     with pytest.raises(fsd.PreflightError, match="output_folderpath"):
         fsd.run_inference(
-            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+            _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
             startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
             mosaic_days=20, bands=["B04", "B08"],
         )
@@ -276,7 +276,7 @@ def test_roi_resume_same_ids_skips_setup_and_dispatches(tmp_path, monkeypatch):
     }).to_csv(csv_filepath, index=False)
 
     result = fsd.run_inference(
-        _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+        _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
         startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
         mosaic_days=20, bands=["B04", "B08"],
     )
@@ -330,7 +330,7 @@ def test_roi_passes_in_memory_footprints_not_geometry_geojson_paths(tmp_path, mo
     }).to_csv(csv_filepath, index=False)
 
     fsd.run_inference(
-        _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="c.parquet",
+        _Tiny(), output_folderpath=str(tmp_path), roi=ROI, catalog_filepath="sentinel-2-l2a/c.parquet",
         startdate=datetime.datetime(2018, 6, 1), enddate=datetime.datetime(2018, 7, 11),
         mosaic_days=20, bands=["B04", "B08"],
     )

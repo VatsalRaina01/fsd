@@ -387,11 +387,11 @@ def test_run_inference_roi_mode_threads_runner_kwargs_to_run_aml_inference(tmp_p
         lambda roi, **kw: gpd.GeoDataFrame({"id": ["s1"], "geometry": [TILE_4326]}, crs="EPSG:4326"),
     )
 
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     from fsd.catalog import declaration as declaration_module
     from fsd.catalog.declaration import S2_L2A_DECLARATION
     gdf = gpd.GeoDataFrame(
-        [{"id": "T_0", "collection": "sentinel-2-l2a", "timestamp": TS[0], "s3url": "s3://x",
+        [{"id": "T_0", "acquisition_key": "T_0", "processing_version": None, "processing_datetime": None, "source": "mpc", "collection": "sentinel-2-l2a", "timestamp": TS[0], "s3url": "s3://x",
           "local_folderpath": str(tmp_path), "files": "B04.tif,B08.tif", "cloud_cover": 0.0,
           "geometry": TILE_4326, "area_contribution": 100.0}],
         crs="EPSG:4326",
@@ -437,11 +437,11 @@ def test_run_inference_roi_stages_grids_geojson_via_seam_on_non_gdal_dst(tmp_pat
     monkeypatch.setattr(api, "_finalize_outputs", lambda outs, folder, *a, **k: api.InferenceResult(
         output_folderpath=folder, output_filepaths=list(outs), stac_catalog_filepath="memory://x"))
 
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     from fsd.catalog import declaration as declaration_module
     from fsd.catalog.declaration import S2_L2A_DECLARATION
     gdf = gpd.GeoDataFrame(
-        [{"id": "T_0", "collection": "sentinel-2-l2a", "timestamp": TS[0], "s3url": "s3://x",
+        [{"id": "T_0", "acquisition_key": "T_0", "processing_version": None, "processing_datetime": None, "source": "mpc", "collection": "sentinel-2-l2a", "timestamp": TS[0], "s3url": "s3://x",
           "local_folderpath": str(tmp_path), "files": "B04.tif,B08.tif", "cloud_cover": 0.0,
           "geometry": TILE_4326, "area_contribution": 100.0}],
         crs="EPSG:4326",
@@ -782,10 +782,10 @@ def test_run_aml_download_mpc_merges_per_shard_catalogs_into_the_canonical(
     from fsd.catalog.declaration import S2_L2A_DECLARATION
 
     rows = [
-        {"tile_id": "T0", "band": "B04", "href": "h0", "dst": "d0", "offset": 0,
+        {"tile_id": "T0", "acquisition_key": "T0", "band": "B04", "href": "h0", "dst": "d0", "offset": 0,
          "collection": "sentinel-2-l2a", "timestamp": TS[0].isoformat(), "s3url": "s3://x0",
          "cloud_cover": 0.0, "nodata": 0, "geometry": TILE_4326.wkt},
-        {"tile_id": "T1", "band": "B04", "href": "h1", "dst": "d1", "offset": 0,
+        {"tile_id": "T1", "acquisition_key": "T1", "band": "B04", "href": "h1", "dst": "d1", "offset": 0,
          "collection": "sentinel-2-l2a", "timestamp": TS[1].isoformat(), "s3url": "s3://x1",
          "cloud_cover": 0.0, "nodata": 0, "geometry": TILE_4326.wkt},
     ]
@@ -802,7 +802,8 @@ def test_run_aml_download_mpc_merges_per_shard_catalogs_into_the_canonical(
         gdf = gpd.GeoDataFrame([{
             "id": tile_id, "collection": "sentinel-2-l2a", "timestamp": ts, "s3url": f"s3://{tile_id}",
             "local_folderpath": "/x", "files": "B04.tif", "cloud_cover": 0.0, "offset": 0,
-            "nodata": 0, "geometry": TILE_4326,
+            "nodata": 0, "acquisition_key": tile_id, "processing_version": None,
+            "processing_datetime": None, "source": "mpc", "geometry": TILE_4326,
         }], crs="EPSG:4326")
         declaration_module.to_attrs(gdf, S2_L2A_DECLARATION)
         fs.write_parquet(f"{root}/runs/{run_id}/shards/catalog-{k}.parquet", gdf)
@@ -839,7 +840,8 @@ def test_merge_shard_catalogs_is_non_vacuous(tmp_path):
         gdf = gpd.GeoDataFrame([{
             "id": tile_id, "collection": "sentinel-2-l2a", "timestamp": TS[0], "s3url": "s3://x",
             "local_folderpath": "/x", "files": "B04.tif", "cloud_cover": 0.0, "offset": 0,
-            "nodata": 0, "geometry": TILE_4326,
+            "nodata": 0, "acquisition_key": tile_id, "processing_version": None,
+            "processing_datetime": None, "source": "mpc", "geometry": TILE_4326,
         }], crs="EPSG:4326")
         declaration_module.to_attrs(gdf, S2_L2A_DECLARATION)
         fs.write_parquet(url, gdf)
@@ -875,7 +877,9 @@ def _make_catalog(path, tmp):
 
     rows = []
     for i, ts in enumerate(TS):
-        rows.append({"id": f"T_{i}", "collection": "sentinel-2-l2a", "timestamp": ts,
+        rows.append({"id": f"T_{i}", "acquisition_key": f"T_{i}", "processing_version": None,
+                     "processing_datetime": None, "source": "mpc",
+                     "collection": "sentinel-2-l2a", "timestamp": ts,
                      "s3url": f"s3://eodata/x{i}", "local_folderpath": str(tmp / f"prod{i}"),
                      "files": "B04.tif,B08.tif,SCL.tif", "cloud_cover": 0.0, "geometry": TILE_4326,
                      "area_contribution": 100.0})
@@ -885,7 +889,7 @@ def _make_catalog(path, tmp):
 
 
 def test_setup_called_twice_dedupes_to_one_row_per_unit_order_preserved(tmp_path):
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _two_shapes(shapes)

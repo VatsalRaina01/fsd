@@ -21,6 +21,23 @@ from fsd.sources import cdse
 from fsd.sources.cdse import CdseCredentials
 
 
+def _esa_name(id, dt, baseline):
+    """A valid, per-id-unique ESA product name for a fake item (spec 59 D3 needs one)."""
+    import hashlib
+
+    h = int(hashlib.sha1(id.encode()).hexdigest(), 16)
+    disc = f"20230101T{h % 10**6:06d}"
+    # distinct tile per id, so two fakes at one datetime are two acquisitions
+    tile = "T36" + "".join(chr(65 + (h // 26**i) % 26) for i in range(3))
+    return (f"S2A_MSIL2A_{dt:%Y%m%dT%H%M%S}_N{(baseline or '05.09').replace('.', '')}"
+            f"_R035_{tile}_{disc}")
+
+
+def _canon(item):
+    """The canonical granule name (spec 59 D3) of a fake item -- what the catalog `id` is."""
+    return item.properties["s2:product_uri"].removesuffix(".SAFE")
+
+
 class _FakeItem:
     """Duck-typed stand-in for a pystac `Item` (no network)."""
 
@@ -28,7 +45,8 @@ class _FakeItem:
         self.id = id
         self.datetime = dt
         self.geometry = sg.mapping(geom)
-        self.properties = {"eo:cloud_cover": cloud}
+        self.properties = {"eo:cloud_cover": cloud,
+                           "s2:product_uri": _esa_name(id, dt, baseline) + ".SAFE"}
         if baseline is not None:
             self.properties["s2:processing_baseline"] = baseline
         self.assets = {k: types.SimpleNamespace(href=v) for k, v in assets.items()}
@@ -155,10 +173,13 @@ def test_items_to_gdf_parses_stac():
     ]
     gdf = cdse._items_to_gdf(items, collection=config.SATELLITE_S2L2A,
                              declaration=_collections.get(config.SATELLITE_S2L2A))
-    assert list(gdf["id"]) == ["t1", "t2"]
+    assert list(gdf["id"]) == [_canon(i) for i in items]
     assert list(gdf.columns) == ["id", "collection", "timestamp", "s3url",
                                  "cloud_cover", "offset", "scale", "nodata",
-                                 "properties", "geometry"]
+                                 "acquisition_key", "processing_version",
+                                 "processing_datetime", "source", "properties", "geometry"]
+    assert list(gdf["source"]) == ["cdse", "cdse"]
+    assert list(gdf["processing_version"]) == ["05.09", "05.09"]
     assert gdf.crs.to_epsg() == 4326
     assert str(gdf["timestamp"].dt.tz) == "UTC"
     assert gdf["s3url"].iloc[0].startswith("s3://eodata/")
@@ -199,13 +220,13 @@ def test_finalize_filters_cloud_and_roi():
                              declaration=_collections.get(config.SATELLITE_S2L2A))
     roi = gpd.GeoDataFrame(geometry=[sg.box(0.2, 0.2, 0.5, 0.5)], crs="EPSG:4326")
     out = cdse._finalize_catalog_gdf(gdf, roi, max_cloudcover=50.0)
-    assert list(out["id"]) == ["hit"]
+    assert list(out["id"]) == [_canon(items[0])]
 
 
 def test_finalize_raises_on_duplicate_ids():
     items = [
         _fake_item("dup", "2018-06-30T00:00:00Z", 0.0, 0.0, 10.0),
-        _fake_item("dup", "2018-07-01T00:00:00Z", 0.0, 0.0, 10.0),
+        _fake_item("dup", "2018-06-30T00:00:00Z", 0.0, 0.0, 10.0),
     ]
     gdf = cdse._items_to_gdf(items, collection=config.SATELLITE_S2L2A,
                              declaration=_collections.get(config.SATELLITE_S2L2A))
@@ -231,19 +252,6 @@ SAFE = ("s3://eodata/Sentinel-2/MSI/L2A_N0500/2018/01/30/"
         "S2A_MSIL2A_20180130T080151_N0500_R035_T36PZT_20230915T000622.SAFE")
 
 
-def test_download_folderpath_strips_prefix_and_safe():
-    out = cdse._download_folderpath(SAFE, "/data/root")
-    assert out == ("/data/root/Sentinel-2/MSI/L2A_N0500/2018/01/30/"
-                   "S2A_MSIL2A_20180130T080151_N0500_R035_T36PZT_20230915T000622")
-
-
-def test_download_folderpath_rejects_bad_url():
-    import pytest
-
-    with pytest.raises(ValueError):
-        cdse._download_folderpath("s3://other-bucket/x.SAFE", "/data")
-
-
 def test_select_item_files_picks_highest_res_and_xml():
     granule = f"{SAFE}/GRANULE/L2A_T36PZT_A013_20180130T080151"
     it = _fake_item(
@@ -261,8 +269,8 @@ def test_select_item_files_picks_highest_res_and_xml():
 
     selected = cdse._select_item_files(it, ["B02", "B05"], "/root", cog=False)
     dsts = {dst for _, dst in selected}
-    folder = ("/root/Sentinel-2/MSI/L2A_N0500/2018/01/30/"
-              "S2A_MSIL2A_20180130T080151_N0500_R035_T36PZT_20230915T000622")
+    # spec 59 D2/D3: the EODATA mirror is retired; same layout as MPC
+    folder = f"/root/sentinel-2-l2a/2018/01/30/{_canon(it)}"
     assert dsts == {f"{folder}/B02.jp2", f"{folder}/B05.jp2", f"{folder}/MTD_TL.xml"}
     # highest-res B05 is the 20m source, not 60m
     b05_src = next(src for src, dst in selected if dst.endswith("B05.jp2"))

@@ -25,14 +25,27 @@ import shapely
 
 from fsd import collections as _collections
 from fsd import config
+from fsd.catalog import processing as processing_module
 from fsd.catalog.declaration import CollectionDeclaration
 from fsd.raster.cog import stamp_or_reencode
+from fsd.sources._granules import (
+    granule_columns,
+    granule_folderpath,
+    item_granule,
+    report_download,
+    require_valid_processing,
+    select_granules,
+    surviving_items,
+)
 from fsd.sources._s2_radiometry import offset_for_item
 from fsd.storage import fs
 
 # The collections this source serves (spec 58 D15). CDSE only serves S2 L2A -- unlike
 # MPC, it has no S1/HLS product at all.
 SERVED_COLLECTIONS = (config.SATELLITE_S2L2A,)
+
+# The value of the catalog `source` column for rows this module writes (spec 59 D8).
+SOURCE = "cdse"
 
 # Environment-variable names for the cloud/Batch path (CdseCredentials.from_env).
 ENV_SH_CLIENT_ID = "CDSE_SH_CLIENT_ID"
@@ -272,7 +285,9 @@ def _items_to_gdf(
     """
     rows = [
         {
-            "id": it.id,
+            # `id` is the canonical granule name (spec 59 D3); for CDSE that is the ESA
+            # product name the item id already is.
+            **granule_columns(item_granule(collection, it), source=SOURCE),
             "collection": collection,
             "timestamp": it.datetime,
             "s3url": _safe_root_from_item(it),
@@ -287,10 +302,12 @@ def _items_to_gdf(
     ]
     gdf = gpd.GeoDataFrame(
         rows, columns=["id", "collection", "timestamp", "s3url", "cloud_cover",
-                       "offset", "scale", "nodata", "properties", "geometry"],
+                       "offset", "scale", "nodata", "acquisition_key", "processing_version",
+                       "processing_datetime", "source", "properties", "geometry"],
         geometry="geometry", crs="EPSG:4326",
     )
     gdf["timestamp"] = pd.to_datetime(gdf["timestamp"], utc=True)
+    gdf["processing_datetime"] = pd.to_datetime(gdf["processing_datetime"], utc=True)
     return gdf
 
 
@@ -320,43 +337,26 @@ def query_catalog(
     *,
     max_cloudcover: float | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    processing: str | None = processing_module.LATEST,
 ) -> gpd.GeoDataFrame:
     """Discover `collection` tiles intersecting `roi` within the date range, via the CDSE
     STAC API (anonymous — no credentials).
 
-    Returns a GeoDataFrame: id, collection, timestamp, s3url, cloud_cover, offset, scale,
-    nodata, properties, geometry (EPSG:4326). Asserts tile id uniqueness. No disk cache
+    Returns a GeoDataFrame: id (canonical granule name), collection, timestamp, s3url,
+    cloud_cover, offset, scale, nodata, acquisition_key, processing_version,
+    processing_datetime, source, properties, geometry (EPSG:4326). Asserts id uniqueness.
+    `processing` (default `"latest"`, spec 59 D7) is applied per acquisition. No disk cache
     (decision).
     """
     declaration = _collections.get(collection)
     roi_gdf = _roi_gdf(roi)
     items = _search_items(roi_gdf, startdate, enddate, collection=collection)
     gdf = _items_to_gdf(items, collection=collection, declaration=declaration)
-    return _finalize_catalog_gdf(gdf, roi_gdf, max_cloudcover)
+    gdf = _finalize_catalog_gdf(gdf, roi_gdf, max_cloudcover)
+    return processing_module.select_processing(gdf, processing).kept
 
 
 # --- tile download -----------------------------------------------------------
-
-_VALID_S3_PREFIXES = ("s3://eodata/", "s3://EODATA/")
-
-
-def _download_folderpath(safe_s3url: str, root_folderpath: str) -> str:
-    """Map a `.SAFE` s3url to its local folder: strip the `s3://eodata/` prefix and
-    the `.SAFE` suffix, then join under `root_folderpath`. Matches the flattened
-    on-disk layout (short band names, no `.SAFE`)."""
-    for pref in _VALID_S3_PREFIXES:
-        if safe_s3url.startswith(pref):
-            rel = safe_s3url[len(pref):]
-            break
-    else:
-        raise ValueError(
-            f"Unexpected s3url (must start with one of {_VALID_S3_PREFIXES}): "
-            f"{safe_s3url}"
-        )
-    rel = rel.rstrip("/")
-    if rel.endswith(".SAFE"):
-        rel = rel[: -len(".SAFE")]
-    return os.path.join(root_folderpath, *rel.split("/"))
 
 
 def _select_item_files(
@@ -380,7 +380,9 @@ def _select_item_files(
     """
     if declaration is None:
         declaration = _collections.get(collection)
-    dst_folder = _download_folderpath(_safe_root_from_item(item), root_folderpath)
+    # Spec 59 D2/D3: the EODATA mirror is retired; both sources write
+    # `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`.
+    dst_folder = granule_folderpath(root_folderpath, collection, item_granule(collection, item))
     band_ext = "tif" if cog else "jp2"
 
     selected = []
@@ -501,9 +503,12 @@ def _convert_one(
     stamp the declared GDAL scale/offset (radiometry bands only; `offset=0` is a no-op) and
     nodata-if-missing tags (#10, #30), then remove `staging`.
 
-    The removal is in a `finally`, and `to_cog` is atomic, so a crash leaves at most the
-    staging JP2 and never a half-written `.tif`; the next resume pass re-transfers and
-    re-converts.
+    **Stamp, then publish (spec 59 D10, closes #74).** The COG is built at
+    `<dst>.stage`, stamped THERE, and only then `os.replace`d onto `dst_path` -- the one
+    step that creates it. The removal of `staging` and of any leftover `.stage` is in a
+    `finally`, so a crash or a stamp exception leaves no `.tif` under its final name at all
+    (it used to leave an unstamped one, which the `size > 0` skip then trusted forever);
+    the next resume pass re-transfers and re-converts.
 
     Top-level and picklable, for `ProcessPoolExecutor` under spawn -- it operates only on
     real local files (and a frozen, picklable `CollectionDeclaration`), so it never needs a
@@ -523,13 +528,14 @@ def _convert_one(
     if declaration is None:
         declaration = S2_L2A_DECLARATION
 
+    stage = dst_path + ".stage"
     try:
         t0 = time.time()
-        to_cog(staging, dst_path)
+        to_cog(staging, stage)
         band = os.path.splitext(os.path.basename(dst_path))[0]
         is_reflectance = declaration.is_radiometry_band(band)
         stamp_or_reencode(
-            dst_path,
+            stage,
             # reflectance-unit offset to match the declared scale: a viewer's
             # unscale=true computes DN*scale + offset, so the DN-space offset (-1000)
             # must be scaled to reflectance too (-> -0.1), else unscale yields
@@ -538,15 +544,17 @@ def _convert_one(
             scale=declaration.scale if is_reflectance else 1.0,
             set_nodata_if_missing=config.NODATA,
         )
+        os.replace(stage, dst_path)   # the ONLY step that creates dst_path
         return True, "ok", time.time() - t0
     except Exception:
         return False, "ConvertError", 0.0
     finally:
-        if fs.exists(staging):
-            try:
-                fs.rm(staging)
-            except Exception:
-                pass
+        for leftover in (staging, stage):
+            if fs.exists(leftover):
+                try:
+                    fs.rm(leftover)
+                except Exception:
+                    pass
 
 
 def _download_one(
@@ -608,6 +616,10 @@ def _append_downloaded(
             "offset": r.get("offset", 0),
             "scale": r.get("scale", declaration.scale),
             "nodata": r.get("nodata", config.NODATA),
+            "acquisition_key": r.get("acquisition_key", tile_id),
+            "processing_version": r.get("processing_version"),
+            "processing_datetime": r.get("processing_datetime"),
+            "source": SOURCE,
             "properties": r.get("properties", "{}"),
             "geometry": r["geometry"],
         })
@@ -725,8 +737,14 @@ def download(
     convert_executor=None,
     should_stop: Callable[[], bool] | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    processing: str = processing_module.LATEST,
 ) -> DownloadResult:
     """THE SOURCE CONTRACT (documented signature; see specs/01-sources.md).
+
+    `processing` (spec 59 D7) selects ONE processing per acquisition among what CDSE offers
+    -- `"latest"` (default; CDSE never deduplicated before) or a PEP 440 specifier such as
+    `"==05.00"` -- before `max_tiles`. `None` raises. Skips are printed, and so is any
+    acquisition this download leaves holding more than one processing in the archive.
 
     Discover matching tiles and download the requested band files (+ MTD_TL.xml) to
     `root_folderpath` via a **pipeline**: a `MAX_CONCURRENT_S3`-wide thread
@@ -776,6 +794,7 @@ def download(
 
     creds.require_s3()  # discovery (STAC) is anonymous; only download needs S3 keys
     declaration = _collections.get(collection)
+    require_valid_processing(processing, collection)
 
     # A remote (blob) root_folderpath runs the whole existing local pipeline
     # (transfer/convert/stamp) against LOCAL scratch -- every path below stays local, so
@@ -804,6 +823,9 @@ def download(
         _items_to_gdf(items, collection=collection, declaration=declaration),
         roi_gdf, max_cloudcover,
     )
+    # CDSE never deduplicated before spec 59; its own forum guidance for near-duplicate
+    # products is "use the most recent" -- hence "latest" by default (D7).
+    tiles = select_granules(tiles, processing=processing, prefix="[fsd.cdse.download]")
 
     if len(tiles) > max_tiles:
         est_gb = len(tiles) * config.APPROX_GB_PER_TILE
@@ -814,14 +836,14 @@ def download(
 
     s3opts = creds.s3_storage_options()
     tile_meta = {row["id"]: row for _, row in tiles.iterrows()}
-    kept_items = [it for it in items if it.id in tile_meta]
+    kept_items = surviving_items(items, tile_meta, collection)
 
     # Flat work list (src, dst, tile_id) built from STAC assets — no S3 listing.
     work: list[tuple[str, str, str]] = []
-    for it in kept_items:
+    for it, tile_id in kept_items:
         for src, dst in _select_item_files(it, bands, root_folderpath, cog=cog,
                                            collection=collection, declaration=declaration):
-            work.append((src, dst, it.id))
+            work.append((src, dst, tile_id))
 
     total = len(work)
     start = time.time()
@@ -1030,6 +1052,7 @@ def download(
     if remote_root is not None:
         _push_scratch_to_remote(root_folderpath, remote_root, catalog)
 
+    report_download(catalog, tiles, processing=processing, source=SOURCE)
     _emit()  # final line
 
     return DownloadResult(
@@ -1078,6 +1101,7 @@ def download_resume(
     convert_executor=None,
     should_stop: Callable[[], bool] | None = None,
     collection: str = config.SATELLITE_S2L2A,
+    processing: str = processing_module.LATEST,
 ) -> list[DownloadResult]:
     """Resume-loop: run `download` repeatedly until every file is present (a full pass
     with no failures) or `max_passes` is reached.
@@ -1111,7 +1135,7 @@ def download_resume(
             cog=cog, max_convert_procs=max_convert_procs, max_staged=max_staged,
             max_concurrent_s3=max_concurrent_s3,
             convert_executor=convert_executor, should_stop=should_stop,
-            collection=collection,
+            collection=collection, processing=processing,
         )
         results.append(r)
         if on_pass is not None:
@@ -1187,7 +1211,8 @@ def probe_throughput(
     if not len(tiles):
         return (0.0, 0, 0.0)
     tile_ids = set(tiles["id"])
-    item = next(it for it in items if it.id in tile_ids)
+    item = next(it for it, _ in surviving_items(items, dict.fromkeys(tile_ids),
+                                            config.SATELLITE_S2L2A))
     band = bands[0]
     keys = sorted(k for k in item.assets if k.split("_")[0] == band)
     if not keys:
@@ -1219,6 +1244,7 @@ def plan_download(
     dst_folderpath: str | None = None,
     max_cloudcover: float | None = None,
     cost_model: dict | None = None,
+    processing: str = processing_module.LATEST,
 ) -> dict:
     """Compute an actionable download plan **without downloading**.
 
@@ -1229,7 +1255,8 @@ def plan_download(
     for the missing tiles. This is the CDSE (materializing-source) arm of the guardrail; a
     streamable source (MPC) would never need it (TODO #21).
     """
-    needed = query_catalog(roi, startdate, enddate, max_cloudcover=max_cloudcover)
+    needed = query_catalog(roi, startdate, enddate, max_cloudcover=max_cloudcover,
+                           processing=processing)
     needed_ids = list(needed["id"])
     needed_set = set(needed_ids)
 

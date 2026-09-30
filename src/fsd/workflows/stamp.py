@@ -22,6 +22,10 @@ from fsd.storage import fs
 __all__ = ["compute_callable_fingerprint", "matches_stamp", "read_stamp", "write_stamp"]
 
 _WRITTEN_AT_KEY = "_written_at"
+# Recorded in the stamp but not part of the request identity: spec 59 D9's provenance says
+# what the artifact WAS derived from, never what the request asked for, so a stamp must
+# match whether or not it carries one.
+_PROVENANCE_KEY = "provenance"
 
 
 def compute_callable_fingerprint(fn) -> str:
@@ -32,11 +36,16 @@ def compute_callable_fingerprint(fn) -> str:
     return f"{getattr(fn, '__module__', '?')}.{getattr(fn, '__qualname__', repr(fn))}"
 
 
-def write_stamp(path: str, identity: dict) -> None:
+def write_stamp(path: str, identity: dict, *, provenance: dict | None = None) -> None:
     """Write `identity` (a JSON-serializable dict) to `path`, plus a human-readable
-    `_written_at` timestamp (display only -- never read back for comparison: no clock)."""
+    `_written_at` timestamp (display only -- never read back for comparison: no clock).
+
+    `provenance` (spec 59 D9) is stored under `"provenance"` and, like `_written_at`, is
+    ignored by `matches_stamp`."""
     payload = dict(identity)
     payload[_WRITTEN_AT_KEY] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if provenance:
+        payload[_PROVENANCE_KEY] = provenance
     fs.write_text(path, json.dumps(payload, indent=2, sort_keys=True, default=str))
 
 
@@ -59,5 +68,5 @@ def matches_stamp(path: str, identity: dict) -> bool:
     stamp = read_stamp(path)
     if stamp is None:
         return False
-    stamp = {k: v for k, v in stamp.items() if k != _WRITTEN_AT_KEY}
+    stamp = {k: v for k, v in stamp.items() if k not in (_WRITTEN_AT_KEY, _PROVENANCE_KEY)}
     return stamp == identity

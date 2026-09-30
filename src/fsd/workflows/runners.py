@@ -12,6 +12,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -25,6 +26,7 @@ import pandas as pd
 from fsd import config
 from fsd import progress as _progress
 from fsd import secrets as _secrets
+from fsd.catalog import processing as _processing
 from fsd.catalog.catalog import TileCatalog as _TileCatalog
 from fsd.model import bundle as _bundle
 from fsd.sources import mpc as _mpc
@@ -41,7 +43,7 @@ _INFER_ONLY_SNAKEFILE = "workflows/_snakefiles/infer_only/Snakefile"
 # import back would be circular (TODO #53).
 _UNIT_IDENTITY_COLS = (
     "id", "startdate", "enddate", "bands", "mosaic_days", "mosaic_scheme", "collection",
-    "properties_filter",
+    "properties_filter", "processing",
 )
 
 
@@ -1079,6 +1081,7 @@ def run_aml_download(
     max_tiles: int,
     collection: str = config.SATELLITE_S2L2A,
     properties_filter: Mapping[str, str | Sequence[str]] | None = None,
+    processing: str = "latest",
     vault_url: str | None = None,
     secret_name: str | None = None,
     creds_url: str | None = None,
@@ -1145,7 +1148,9 @@ def run_aml_download(
     limits_cls = _import_command_job_limits()
 
     if source == "cdse":
-        tiles = _cdse_query_catalog(roi, startdate, enddate, max_cloudcover=max_cloudcover)
+        tiles = _cdse_query_catalog(roi, startdate, enddate, max_cloudcover=max_cloudcover,
+                                    processing=processing)
+        touched_keys = set(tiles["acquisition_key"])
         n_assets = len(tiles)
         estimated_gb = len(tiles) * config.APPROX_GB_PER_TILE
 
@@ -1164,6 +1169,9 @@ def run_aml_download(
             f"--startdate {_iso(startdate)} --enddate {_iso(enddate)} "
             f"--bands {','.join(bands)} --dst {dst_folderpath} --catalog {catalog_filepath} "
             f"--max-tiles {max_tiles} {creds_arg} "
+            # The specifier rides the command line as a plain string (spec 59 D7) -- quoted,
+            # because `>=05.00` is otherwise a shell redirect.
+            f"--processing {shlex.quote(processing)} "
             f"--status-url {run_root}/_status/0.json"
         )
         if max_cloudcover is not None:
@@ -1181,7 +1189,9 @@ def run_aml_download(
         rows = _mpc.discover_shard_rows(
             roi, startdate, enddate, bands, dst_folderpath, max_cloudcover=max_cloudcover,
             collection=collection, properties_filter=properties_filter,
+            processing=processing,
         )
+        touched_keys = {r["acquisition_key"] for r in rows}
         n_discovered = len(rows)
 
         # Diff against the existing catalog BEFORE any preflight or dispatch (#64). A
@@ -1251,6 +1261,15 @@ def run_aml_download(
 
     if source == "mpc":
         _merge_shard_catalogs(shard_catalog_urls, catalog_filepath)
+
+    # Spec 59 D7: the driver knows which acquisitions this download touched, so it -- not a
+    # node -- reports whether any now holds more than one processing in the archive.
+    if fs.exists(catalog_filepath):
+        for line in _processing.ambiguity_lines(
+            _TileCatalog(catalog_filepath).read(), touched_keys, n_matched=len(touched_keys),
+            processing=processing, source=source,
+        ):
+            print(line, flush=True)
 
     return {"run_id": run_id, "source": source, "n_jobs": len(jobs),
             "job_statuses": result["job_statuses"], "reports": result["reports"]}

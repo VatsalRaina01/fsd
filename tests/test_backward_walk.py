@@ -28,6 +28,8 @@ def _make_catalog(cat_path, tmp_path):
         tif = tmp_path / f"tile_{i}.tif"
         tif.write_bytes(b"\x00")
         rows.append({
+            "id": f"g{i}", "acquisition_key": f"g{i}", "processing_version": None,
+            "processing_datetime": None, "source": "mpc",
             "mgrs_tile": mgrs, "timestamp": pd.Timestamp("2018-04-01", tz="UTC"),
             "band": "B04", "filepath": str(tif),
             "geometry": box(0, 0, 10, 10),
@@ -110,7 +112,7 @@ def test_bands_canonicalize_to_the_same_path_as_native_names(tmp_path):
     """Spec 58 AC5: `bands=["B8A"]` and `bands=["nir08"]` against a collection declaring
     that alias resolve to the SAME cube path -- `setup` canonicalizes bands to native
     asset keys before either the digest or `input.csv` ever see them."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _two_shapes(shapes)
@@ -140,7 +142,7 @@ def test_bands_canonicalize_to_the_same_path_as_native_names(tmp_path):
 
 
 def test_setup_with_different_bands_writes_to_different_window_folders(tmp_path):
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _two_shapes(shapes)
@@ -177,7 +179,7 @@ def test_request_identity_matches_the_input_csv_identity(tmp_path):
     compute the SAME identity `_flatten_identity` computes from a real `input.csv` --
     otherwise a walk that trusts the request-derived one would (mis)match a stamp the
     old, csv-derived one would not."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _two_shapes(shapes)
@@ -296,7 +298,8 @@ def test_top_level_short_circuit_skips_setup_and_catalog(tmp_path, monkeypatch, 
     the request-derived identity alone, and the returned `TrainingData` matches the
     first run's. Identical under `runner="local"` and `runner="aml"` -- the walk is
     above the runner seam (AC11); only `run_folderpath`'s default differs."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
+    cat.parent.mkdir(exist_ok=True)
     cat.write_text("")  # exists for call #1's preflight; contents are never real parquet
     export = tmp_path / "export"
 
@@ -342,7 +345,8 @@ def test_top_level_short_circuit_skips_setup_and_catalog(tmp_path, monkeypatch, 
 
 def test_top_level_short_circuit_prints_plan_and_fetch(tmp_path, monkeypatch, capsys):
     """AC9/D7: the satisfied case prints `[plan] ... CURRENT` then `[fetch] ...`."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
+    cat.parent.mkdir(exist_ok=True)
     cat.write_text("")
     export = tmp_path / "export"
 
@@ -370,7 +374,8 @@ def test_stale_target_prints_plan_before_any_work(tmp_path, monkeypatch, capsys)
     """AC9/D7, the other branch: the FIRST call (nothing built yet) prints `[plan]
     target: ... -> STALE (...)`, the flatten cube count, and `[plan] will run: ...`
     before `run_create_datacube` is ever invoked."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
+    cat.parent.mkdir(exist_ok=True)
     cat.write_text("")
     export = tmp_path / "export"
 
@@ -427,7 +432,7 @@ def test_build_shortfall_only_calls_setup_for_missing_ids_only(tmp_path, monkeyp
     """AC3: a partial run calls `setup` only for the missing ids -- scaled down from
     spec 50's own 900/40 example: 3 already have rows, 2 more are requested, `setup`
     receives exactly those 2 shapes."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     _make_catalog(cat, tmp_path)
     run_folder = tmp_path / "run"
     csv_fp = str(run_folder / "input.csv")
@@ -452,7 +457,7 @@ def test_build_shortfall_only_no_setup_call_when_nothing_missing(tmp_path, monke
     """AC5, in spirit: cube targets are enumerated with no catalog access -- `setup` (the
     only catalog reader in this module) is proven never called on a fully-satisfied
     request."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1])
@@ -474,7 +479,7 @@ def test_adding_one_polygon_rebuilds_exactly_one_cube(tmp_path, monkeypatch):
     """AC7a/D6 Q1: 3 shapes built, then a 4th requested -> the shortfall is 1 and `setup`
     receives exactly 1 shape. No set-level hash appears anywhere: the new id gets its own
     leaf, everything else is untouched."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     _make_catalog(cat, tmp_path)
     run_folder = tmp_path / "run"
     csv_fp = str(run_folder / "input.csv")
@@ -521,7 +526,7 @@ def test_F1_a_rowless_but_built_cube_regenerates_its_row(tmp_path):
     instinct). A re-run must regenerate the row for every cube that is genuinely on
     disk -- otherwise the id is invisible to everything downstream (`_build_shortfall`,
     `flatten`) and the next `_build_shortfall` call crashes on a missing `input.csv`."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1])
@@ -544,12 +549,14 @@ def test_F1_b_window_purge_never_loses_a_present_windows_rows(tmp_path):
     """F1b: the shared aml run folder (D6) means every request against one root shares
     one `input.csv`. Switching between two windows' worth of requests against that one
     root must not permanently lose the first window's rows once its cubes are built."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     rows = []
     for i, ts in enumerate(["2018-04-01", "2019-04-01"]):
         tif = tmp_path / f"t{i}.tif"
         tif.write_bytes(b"\x00")
-        rows.append({"mgrs_tile": "T33UVP", "timestamp": pd.Timestamp(ts, tz="UTC"),
+        rows.append({"id": f"g{i}", "acquisition_key": f"g{i}", "processing_version": None,
+                     "processing_datetime": None, "source": "mpc",
+                     "mgrs_tile": "T33UVP", "timestamp": pd.Timestamp(ts, tz="UTC"),
                      "band": "B04", "filepath": str(tif), "geometry": box(0, 0, 10, 10)})
     gdf = gpd.GeoDataFrame(rows, crs="EPSG:4326")
     gdf["area_contribution"] = 1.0
@@ -580,7 +587,7 @@ def test_F2_all_out_of_coverage_shortfall_does_not_raise(tmp_path):
     polygon among hundreds can't trigger it), but `build_shortfall_only` can hand it a
     shortfall that is ENTIRELY out-of-coverage (e.g. one new polygon added to an
     otherwise-complete run)."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     _make_catalog(cat, tmp_path)
     run_folder = tmp_path / "run"
     csv_fp = str(run_folder / "input.csv")
@@ -608,7 +615,7 @@ def test_F3_plan_missing_count_matches_what_build_shortfall_will_dispatch(tmp_pa
     `_build_shortfall` (the actual dispatch decision) finds -- an interrupted run (rows
     written, no cubes built yet) must not print `0 missing` while the build leg then
     dispatches every row."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1, 2])
@@ -633,7 +640,7 @@ def test_F4_known_empty_cell_is_excluded_from_request_identity(tmp_path):
     `_flatten_identity_from_request` must exclude it too -- otherwise the request-side
     identity always names one more id than `input.csv` (which `setup` never wrote a row
     for) and the top-level short-circuit can never match its own stamp, forever."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1], outside_ids=[1])
@@ -663,7 +670,7 @@ def test_F4_known_empty_cell_is_excluded_from_request_identity(tmp_path):
 def test_F5_repeated_identical_call_round_trips_without_purging(tmp_path):
     """F5 (spec 58-adapted): a second call with IDENTICAL params must not purge the
     rows the first call just wrote."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1])
@@ -680,7 +687,7 @@ def test_known_empty_recorded_once_and_shortfall_converges_to_zero(tmp_path):
     """AC6/D5: a cell with no in-window imagery is recorded once and reported as
     known-empty on the next run; two consecutive identical runs both report a shortfall
     of 0 -- the non-convergence case the manifest exists to prevent."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1], outside_ids=[1])  # id 1 has no intersecting tile
@@ -706,7 +713,7 @@ def test_duplicate_ids_still_raise_and_are_not_recorded_as_known_empty(tmp_path)
     record the caller's duplicated shapes as "no imagery" -- turning a deliberate loud
     refusal (added 2026-07-28, after a multi-polygon ROI repeated cell ids) into missing
     training data."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     _make_catalog(cat, tmp_path)
     shapes = tmp_path / "dupes.geojson"
     gpd.GeoDataFrame(
@@ -740,7 +747,7 @@ def test_known_empty_is_forgotten_once_the_cell_has_a_row_again(tmp_path):
     -> the legacy full-`setup` pass), which is D5's documented escape hatch from a stale
     manifest. The scoped walk deliberately does NOT rediscover a known-empty cell -- that
     is D5 working as designed, and D5's own risk note says so."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1], outside_ids=[1])  # id 1 has no imagery yet
@@ -777,7 +784,7 @@ def test_forced_rebuild_clears_a_stale_known_empty_entry(tmp_path):
     actually clears it: that pass re-derives every shape from the catalog, so
     `input.csv` becomes the authority and any surviving known-empty record would leave
     the manifest disagreeing with it."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1], outside_ids=[1])
@@ -813,7 +820,7 @@ def test_a_row_naming_the_old_path_shape_is_purged_and_regenerated(tmp_path, cap
     `datacube_filepath`, finds the old cube present and dispatches nothing -- and the
     flatten stamp records paths the request-derived identity can never reproduce, killing
     the short-circuit for good. The path is part of what makes a row current."""
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _shapes(shapes, [0, 1])
@@ -916,7 +923,7 @@ def test_setup_writes_a_window_scoped_declaration_control_file(tmp_path):
 
     from fsd.catalog import declaration as declaration_module
 
-    cat = tmp_path / "catalog.parquet"
+    cat = tmp_path / "sentinel-2-l2a" / "catalog.parquet"
     shapes = tmp_path / "shapes.geojson"
     _make_catalog(cat, tmp_path)
     _two_shapes(shapes)

@@ -26,7 +26,7 @@ def _catalog_gdf():
 
     rows = [
         {
-            "id": "S2B_MSIL2A_20181231T080329_N0500_R035_T37PBP_20230726T205809",
+            "id": "S2B_MSIL2A_20181231T080329_N0500_R035_T37PBP_20230726T205809", "acquisition_key": "S2B_MSIL2A_20181231T080329_N0500_R035_T37PBP_20230726T205809", "processing_version": None, "processing_datetime": None, "source": "mpc",
             "collection": "sentinel-2-l2a",
             "timestamp": pd.Timestamp("2018-12-31T08:03:29", tz="UTC"),
             "s3url": "s3://eodata/Sentinel-2/MSI/L2A/.../S2B_...T37PBP.SAFE",
@@ -38,7 +38,7 @@ def _catalog_gdf():
             "geometry": shapely.geometry.box(36.6, 12.6, 37.0, 13.0),
         },
         {
-            "id": "S2A_MSIL2A_20180601T075611_N0500_R035_T36PZU_20230101T000000",
+            "id": "S2A_MSIL2A_20180601T075611_N0500_R035_T36PZU_20230101T000000", "acquisition_key": "S2A_MSIL2A_20180601T075611_N0500_R035_T36PZU_20230101T000000", "processing_version": None, "processing_datetime": None, "source": "mpc",
             "collection": "sentinel-2-l2a",
             "timestamp": pd.Timestamp("2018-06-01T07:56:11", tz="UTC"),
             "s3url": "s3://eodata/.../T36PZU.SAFE",

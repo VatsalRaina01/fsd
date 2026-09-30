@@ -22,6 +22,7 @@ import rasterio.transform
 import rasterio.warp
 
 from fsd import config
+from fsd.catalog import processing as processing_module
 from fsd.storage import fs
 
 _METADATA_NAME = "metadata.pickle.npy"
@@ -48,6 +49,7 @@ def flatten(
         for fp in filepaths_df[filepath_col]
     ]
     common_metadata = _check_metadata_consistency(metadata_filepaths)
+    provenance = common_metadata.pop("provenance", None)
 
     data_list, coords_list, id_list = [], [], []
     label_list = [] if label_col is not None else None
@@ -65,6 +67,9 @@ def flatten(
     data = np.concatenate(data_list, axis=0)         # (pixels, t, b)
     coords = np.concatenate(coords_list, axis=0)     # (pixels, 2)
     common_metadata["data_shape_desc"] = ("pixel", "timestamps", "bands")
+    if provenance:
+        # Spec 59 D9: versions and sources only (a training set spans thousands of granules).
+        common_metadata["provenance"] = provenance
 
     fs.makedirs(export_folderpath)
     fs.save_npy(os.path.join(export_folderpath, "data.npy"), data)
@@ -83,6 +88,7 @@ def _check_metadata_consistency(metadata_filepaths, check_attributes=("bands",
                                                                        "timestamps")):
     """All datacubes must agree on `bands` and `timestamps`; return the common ones."""
     common = {attr: None for attr in check_attributes}
+    provenance_blocks = []
     for mfp in metadata_filepaths:
         metadata = fs.load_npy(mfp, allow_pickle=True)[()]
         for attr in check_attributes:
@@ -91,6 +97,10 @@ def _check_metadata_consistency(metadata_filepaths, check_attributes=("bands",
                 common[attr] = cur
             elif cur != common[attr]:
                 raise ValueError(f"Attribute {attr} are not consistent.")
+        provenance_blocks.append(metadata.get("provenance"))
+    merged = processing_module.merge_provenance(provenance_blocks, with_ids=False)
+    if merged:
+        common["provenance"] = merged
     return common
 
 
