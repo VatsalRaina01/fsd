@@ -48,7 +48,8 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
    notebooks — plain asserts, no env vars, a Setup cell that checks the `.venv` kernel and loads
    the notebook's own `src/`; `TEMPLATE.ipynb`; `tests/test_notebooks.py` now guards
    `runbooks/*.ipynb`). **Next:** D12's notebook/doc repointing (Austria S2 + the S1
-   blob imagery). Next spec after 59: **#101** (train-vs-inference processing guard).
+   blob imagery; scope in the step-9 notes below), then **contributor readiness** (step 10) -- #101 and the
+   Austria re-download come after it (user, 2026-09-30).
    What P1 left for P2 on purpose: `docs/tutorial.md` and the committed
    `tests/data/tutorial/` fixture still use the pre-59 catalog (flat folders, no acquisition
    columns) -- `tests/test_tutorial_fixture.py` converts a per-test copy into
@@ -164,9 +165,30 @@ instruction above.
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
 | **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 DONE + MERGED 2026-09-12** (`795b117`, `--no-ff`, worktree pruned) — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built) + 2 more by review (`properties_filter` could not filter an int property; `build_datacube` enforced but never applied it), run-book **green incl. QGIS**, pytest **1169 passed / 104 skipped**, ruff clean. `demos/` + notebook updated for P2; **S1 notebook ran green on AML 2026-09-29** (2 real bugs, see "Most recent entry"). **P3 (HLS) now waits behind step 9** | → **9** |
-| **9** | **Imagery archive layout — [spec 59](specs/59-imagery-archive-layout.md)** — **CURRENT (user, 2026-09-29).** `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`; lossless (ADR 0032): two processings coexist, a build over both raises, `processing=` selects per acquisition; `acquisition_key`/`processing_version`/`processing_datetime`/`source` columns; closes #74 | **spec SIGNED OFF 2026-09-30**; P1 implemented + reviewed, then the P2 re-download run-book | → **#101** spec (processing guard), then **10** |
-| **10** | **Contributor readiness** — CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff` | → spec 58 **P3 (HLS)** — order vs. step 10 not yet confirmed; P3 could be the first "real contribution" under the new process |
+| **9** | **Imagery archive layout — [spec 59](specs/59-imagery-archive-layout.md)** — **CURRENT (user, 2026-09-29).** `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`; lossless (ADR 0032): two processings coexist, a build over both raises, `processing=` selects per acquisition; `acquisition_key`/`processing_version`/`processing_datetime`/`source` columns; closes #74 | **spec SIGNED OFF 2026-09-30**; P1 merged; **P2 Window A run-book GREEN + merged + pushed 2026-09-30** (`77ac790`). **Left: D12 repointing ONLY** (next row's order) | → **D12**, then **10** |
+| **10** | **Contributor readiness** — CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff`. **Includes our own workflow** (feature branches for user + Claude, not always `main`; user, 2026-09-30) | → **#101** spec + the full Austria re-download (first branch-based work), then spec 58 **P3 (HLS)** |
 | **11** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
+
+**⚠️ The order changed again (user, 2026-09-30).** After 59-P2's Window A run went green, the user
+chose: **spec 59 D12 repointing → contributor readiness (step 10)**, moving the **#101 spec** and the
+**full Austria re-download** (P2 part 2) to after step 10. Reasons (agreed in-session): D12 is the
+only remaining step-9 work a contributor would *see* (docs teaching a layout `main` refuses); the
+re-download only changes local data; #101 is a new feature and can be the first thing built on a
+feature branch under the new process. Scope added to step 10 the same day: **we** (user + Claude)
+also move to feature branches instead of always landing on `main`.
+
+**D12 scope (for the implementing session; spec 59 §D12, signed off):** repoint `dst_folderpath` /
+`catalog_filepath` to ONE shared archive (`{AZ_ROOT}/imagery` on blob, `tests/outputs/imagery`
+locally; catalog = `{root}/{collection}/catalog.parquet`) in: `demos/e2e_austria.py`,
+`demos/e2e_austria_aml.py`, `demos/E2E_AUSTRIA.md`, `notebooks/e2e_austria_aml.ipynb`, `README.md`,
+`docs/tutorial.md`, `docs/howto/{download-real-imagery,your-own-region,run-at-scale,bundle-your-model}.md`,
+`docs/reference/environment.md` (found by grep 2026-09-30 -- re-grep, the list may be incomplete;
+`docs/progress-archive.md` is history, leave it). Plus re-lay-out the committed tutorial fixture
+`tests/data/tutorial/` (27 MB, flat pre-59 folders + pre-59 catalog) so `test_tutorial_fixture.py`
+stops converting a per-test copy. Pytest never runs a notebook cell or a fenced block: use
+`docs_kwarg_sweep.py` (memory `docs-call-sites-rot-silently`). Implementation = a Sonnet session
+(spec 24 D3). After D12, local demos point at `tests/outputs/imagery`, which is EMPTY until someone
+downloads -- the old `tests/outputs/demo_e2e/imagery` (63 GB, pre-59) is unreadable by `main`.
 
 **⚠️ The order changed again (user, 2026-09-29).** After the S1 AML run the user chose the **archive
 layout** as the next task, ahead of P3 and of contributor readiness. Reasons (agreed in-session):
