@@ -7,6 +7,12 @@
 > a pipeline/networked script itself (spec 24): you run the commands, paste back each step's
 > `_result.json`, Claude diffs it. Template: `TEMPLATE.md`.
 >
+> **From 2026-09-30 new run-books are notebooks (spec 24 amendment A1):** one `.ipynb` per
+> run-book, code you can read, every PASS condition a plain `assert`, no environment variables,
+> and a first cell that checks the kernel (`.venv`) and which `fsd` it imported. You paste back
+> the **Summary** cell's output or a failing cell's message. Template: **`TEMPLATE.ipynb`**. The
+> Markdown run-books below stay as they are — point-in-time records.
+>
 > Every run-book below also carries its own D4 status header (`current` / `superseded-by-NN` /
 > `historical`, ADR 0023) — that answers *"can I trust this as a description of fsd today?"*. This
 > table adds what the header deliberately excludes: **where it sits in the pipeline, and whether it
@@ -62,6 +68,7 @@ The pipeline was proven **locally** first; these stay as reference and for local
 | `28-stac-geometry-regen.md` | regenerate the demo STAC with the true slanted cell footprint (not the bbox) | ✅ |
 | `29-tier1-stacnotator-byo.md` | Tier-1 serving: a pre-styled XYZ URL consumed by STACNotator BYO-XYZ | ✅ |
 | `30-tier2-mini-mpc.md` | Tier-2 serving: outputs load into stock pgSTAC + titiler-pgstac (fsd = "just another MPC") | ✅ |
+| `59-p2-window-a.ipynb` | **spec 59 P2 (AC 18–21):** S2 + S1 of Window A into ONE archive root, repeat fetches nothing, a CDSE copy forces D6, kill a download locally + on blob (D10), QGIS both cubes. The first notebook run-book | 🆕 not yet run |
 | `58-redownload-austria-mpc.md` | **re-ingest the local Austria archive from MPC under spec 58 P1's catalog schema** — the D12 rename/new columns invalidated every pre-P1 catalog, and this re-stamps radiometry from each item's own declared baseline. ⚠️ deletes the old archive first | ✅ **ran 2026-09-07** — 184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50 (**B8A dropped**, full fidelity did not fit); verify 8/8 checks green, both cubes built (seam cell spans all 4 MGRS tiles), QGIS eyeball passed |
 
 ## Track C — Azure P1 access probes & exploratory (one-offs)
@@ -81,9 +88,10 @@ The pipeline was proven **locally** first; these stay as reference and for local
 | `44-todo-to-issues.md` | migrate `TODO.md`'s 62 rows to **number-aligned** GitHub issues (`#N == TODO #N`, spec 41 D8) — the manifest is reviewed and signed off; a misnumber is permanent, so this one is strictly sequential and halts on the first mismatch | 🆕 not yet run |
 
 ## Not run-books
-- `TEMPLATE.md` — the spec-24 skeleton to copy for a new run-book; carries the D4 header pattern as
-  a placeholder for whatever run-book is written from it, so every future run-book inherits the
-  format from the start.
+- `TEMPLATE.ipynb` — the skeleton to copy for a new run-book (spec 24 A1): kernel + which-`fsd`
+  checks, a Settings cell, the step / check / Summary pattern.
+- `TEMPLATE.md` — the older Markdown skeleton (spec 24 SO-2); superseded by `TEMPLATE.ipynb` for
+  new run-books.
 - `HANDOFF-*.md` — ephemeral session batons (handoff protocol); `status: historical` — safe to
   delete once the step they targeted has landed (all three have).
 - `scripts/` — helper scripts some run-books invoke.

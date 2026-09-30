@@ -5,6 +5,9 @@ summary: <one sentence -- what a reader needs to decide whether to open this fil
 
 # Run-book: <name>
 
+> ⚠️ **Superseded for new run-books by `TEMPLATE.ipynb`** (spec 24 amendment A1, 2026-09-30):
+> run-books are now notebooks. This file stays as the record of the older format.
+
 > Spec 24 template. A run-book is what Claude hands the user instead of running a
 > pipeline/long/networked script itself. The user runs the commands and pastes back each step's
 > `_result.json`; Claude diffs it against the success criteria.

@@ -1,4 +1,4 @@
-"""Guards for the one notebook this repo tracks.
+"""Guards for the notebooks this repo tracks: the demo notebooks, and every run-book.
 
 `notebooks/build_images.ipynb` is the how-to for building the two AML node images, and
 is deliberately public (`.gitignore` un-ignores it explicitly). Every other notebook stays
@@ -19,6 +19,11 @@ credential, and routing it through an environment variable was judged clunky. Ev
 else above stays forbidden -- GUIDs (subscription / tenant / client ids), email addresses,
 home directories, resource-group / workspace / cluster names.
 
+**Run-books are notebooks too (spec 24 A1).** Every `runbooks/*.ipynb` is tracked (only
+`notebooks/*.ipynb` is gitignored), so each one gets the same two guards by glob -- a new
+run-book is covered the moment it exists. Two more rules are theirs alone (A1.5): the notebook
+names its kernel, and it checks which `fsd` it imported.
+
 Synthetic and offline: this reads the checked-in JSON, it never runs a cell.
 """
 
@@ -32,28 +37,40 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = REPO_ROOT / "notebooks"
+RUNBOOKS = REPO_ROOT / "runbooks"
 
 # Every notebook `.gitignore` explicitly un-ignores. Add a name here in the same commit
 # that un-ignores it, or it goes public unguarded.
 TRACKED_NOTEBOOKS = ["build_images.ipynb", "e2e_austria_aml.ipynb"]
 
+# Every run-book notebook, found by glob rather than listed (spec 24 A1.9).
+RUNBOOK_NOTEBOOKS = sorted(p.name for p in RUNBOOKS.glob("*.ipynb"))
 
-def _cells(name):
-    return json.loads((NOTEBOOKS / name).read_text())["cells"]
+# (folder, name) for every notebook the two leak guards cover.
+GUARDED = ([("notebooks", n) for n in TRACKED_NOTEBOOKS]
+           + [("runbooks", n) for n in RUNBOOK_NOTEBOOKS])
 
 
-def _source(name) -> str:
-    return "\n".join("".join(c["source"]) for c in _cells(name))
+def _path(name, folder="notebooks") -> Path:
+    return REPO_ROOT / folder / name
 
 
-def _whole_file(name) -> str:
+def _cells(name, folder="notebooks"):
+    return json.loads(_path(name, folder).read_text())["cells"]
+
+
+def _source(name, folder="notebooks") -> str:
+    return "\n".join("".join(c["source"]) for c in _cells(name, folder))
+
+
+def _whole_file(name, folder="notebooks") -> str:
     """Source AND outputs, as raw JSON.
 
     The identifier scan deliberately covers both. Outputs are already banned outright by
     `test_no_saved_outputs`, but that makes the two tests overlap rather than depend on
     each other: if the outputs rule is ever relaxed, an identifier still cannot ride in.
     """
-    return (NOTEBOOKS / name).read_text()
+    return _path(name, folder).read_text()
 
 
 @pytest.mark.parametrize("name", TRACKED_NOTEBOOKS)
@@ -63,8 +80,8 @@ def test_the_tracked_notebook_exists(name):
     assert (NOTEBOOKS / name).exists(), f"{NOTEBOOKS / name} is missing"
 
 
-@pytest.mark.parametrize("name", TRACKED_NOTEBOOKS)
-def test_no_saved_outputs(name):
+@pytest.mark.parametrize("folder, name", GUARDED)
+def test_no_saved_outputs(folder, name):
     """An executed notebook must be cleared before commit.
 
     This is the leak that matters most: the cell that prints a Studio URL embeds the
@@ -72,12 +89,12 @@ def test_no_saved_outputs(name):
     the source would tell you.
     """
     dirty = [
-        i for i, c in enumerate(_cells(name))
+        i for i, c in enumerate(_cells(name, folder))
         if c.get("cell_type") == "code"
         and (c.get("outputs") or c.get("execution_count") is not None)
     ]
     assert not dirty, (
-        f"{name}: cells {dirty} carry saved outputs or execution counts. Run "
+        f"{folder}/{name}: cells {dirty} carry saved outputs or execution counts. Run "
         "Kernel > Restart & Clear All Outputs, then re-commit."
     )
 
@@ -97,16 +114,16 @@ _FORBIDDEN = {
 }
 
 
-@pytest.mark.parametrize("name", TRACKED_NOTEBOOKS)
+@pytest.mark.parametrize("folder, name", GUARDED)
 @pytest.mark.parametrize("what, pattern", sorted(_FORBIDDEN.items()))
-def test_file_carries_no_identifiers(what, pattern, name):
+def test_file_carries_no_identifiers(what, pattern, folder, name):
     """The notebook's private values come from `~/.config/fsd/config.toml` at run time.
 
     Anything matching here has been baked into a public file — in a cell, or in an output.
     """
-    hits = sorted(set(re.findall(pattern, _whole_file(name))))
+    hits = sorted(set(re.findall(pattern, _whole_file(name, folder))))
     assert not hits, (
-        f"notebooks/{name} hardcodes {what}: {hits}. "
+        f"{folder}/{name} hardcodes {what}: {hits}. "
         "Read it through fsd.config.load() instead."
     )
 
@@ -136,3 +153,31 @@ def test_private_values_still_come_from_fsd_config(name):
     """
     src = _source(name)
     assert re.search(r"\bfsd\.config\.load\(", src), f"{name} no longer calls fsd.config.load()"
+
+
+# --- run-book notebooks only (spec 24 A1.5) --------------------------------------------
+
+
+def test_the_runbook_template_is_guarded():
+    """The glob above must find something, or a typo in RUNBOOKS guards nothing, silently."""
+    assert "TEMPLATE.ipynb" in RUNBOOK_NOTEBOOKS, f"no TEMPLATE.ipynb under {RUNBOOKS}"
+
+
+@pytest.mark.parametrize("name", RUNBOOK_NOTEBOOKS)
+def test_runbook_names_its_kernel(name):
+    """The kernel is the run-book's job, not the reader's guess: the metadata pre-selects the
+    main checkout's `.venv`, and a cell asserts it at run time (`sys.prefix`)."""
+    nb = json.loads(_path(name, "runbooks").read_text())
+    assert nb["metadata"].get("kernelspec", {}).get("display_name") == ".venv", (
+        f"runbooks/{name}: metadata.kernelspec.display_name must be '.venv'")
+    assert "sys.prefix" in _source(name, "runbooks"), (
+        f"runbooks/{name} never checks which Python it runs on (sys.prefix)")
+
+
+@pytest.mark.parametrize("name", RUNBOOK_NOTEBOOKS)
+def test_runbook_checks_which_fsd_it_imported(name):
+    """`fsd` is installed editable from the MAIN checkout, so a worktree's run-book that just
+    `import fsd`s runs main's code. The run-book must put its own `src/` first and check."""
+    src = _source(name, "runbooks")
+    assert "sys.path.insert" in src and "fsd.__file__" in src, (
+        f"runbooks/{name} must put its own src/ on sys.path and assert fsd.__file__")
