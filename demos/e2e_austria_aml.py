@@ -81,6 +81,7 @@ ID_COL = "fid"
 LABEL_COL = "crop"
 BANDS = ["B04", "B08", "B8A", "SCL"]
 COLLECTION = config.SATELLITE_S2L2A   # the download's collection: names the archive subfolder
+ARCHIVE_DIRNAME = "imagery"           # `{AZ_ROOT}/imagery`: the one shared archive (spec 59 D12)
 # SCL mask classes are declared on the sentinel-2-l2a CollectionDeclaration now (spec 58
 # D3), not a verb parameter -- they happen to already be this list, so no behavior change.
 # `collection=` (default "sentinel-2-l2a") and `properties_filter=` (spec 58 D9) stay at
@@ -641,6 +642,8 @@ def _assert_archive_trustworthy(catalog_fp: str, dst_folderpath: str) -> dict:
     # the catalog itself (not a hardcoded `*.tif`) so a declared sidecar -- CDSE
     # declares `MTD_TL.xml` alongside the bands -- is globbed for rather than reported
     # as missing from a listing that never looked for it.
+    # Scoped to this collection's directory: `dst_folderpath` is the ONE shared archive
+    # (spec 59 D12), so a bare `**` glob would also list S1 and other ROIs' granules.
     declared: set[str] = set()
     for _, row in rows.iterrows():
         granule = str(row["local_folderpath"]).rstrip("/").replace("\\", "/").split("/")[-1]
@@ -649,7 +652,7 @@ def _assert_archive_trustworthy(catalog_fp: str, dst_folderpath: str) -> dict:
     exts = {os.path.splitext(k)[1] for k in declared if os.path.splitext(k)[1]}
     present: set[str] = set()
     for ext in sorted(exts):
-        present |= {_asset_key(p) for p in fs.glob(f"{dst_folderpath}/**/*{ext}")}
+        present |= {_asset_key(p) for p in fs.glob(f"{dst_folderpath}/{COLLECTION}/**/*{ext}")}
 
     missing = declared - present
     if missing:
@@ -698,9 +701,8 @@ def _assert_archive_trustworthy(catalog_fp: str, dst_folderpath: str) -> dict:
 def step_download(ml_client, root: str, az_root: str) -> dict:
     # Spec 59 D12: imagery goes to ONE shared archive at `{AZ_ROOT}/imagery`, not under this
     # run's `root`, so a repeat run (or the next demo) downloads nothing it already holds.
-    # One catalog per collection directory: `{archive}/{collection}/catalog.parquet` (D5).
-    dst_folderpath = f"{az_root.rstrip('/')}/imagery"
-    catalog_fp = f"{dst_folderpath}/{COLLECTION}/catalog.parquet"
+    # One catalog per collection directory: the archive layout (D5; see `fsd.archive_catalog_filepath`).
+    dst_folderpath = f"{az_root.rstrip('/')}/{ARCHIVE_DIRNAME}"
     roi_url = f"{root.rstrip('/')}/_inputs/AT_ROI.geojson"
     with open(ROI_FP, "rb") as src, fs.open(roi_url, "wb") as dst:
         dst.write(src.read())
@@ -720,9 +722,10 @@ def step_download(ml_client, root: str, az_root: str) -> dict:
     # cluster's own `max_instances`, which is what makes this a full-width fan-out and
     # gives D11 its ~16 download admission samples. Pinning a number here would silently
     # under-use a resized cluster.
-    fsd.download(roi_url, START, END, BANDS, dst_folderpath,
-                 source="mpc", max_tiles=MAX_TILES, max_cloudcover=MAX_CLOUDCOVER,
-                 runner="aml", runner_kwargs=runner_kwargs)
+    catalog_fp = fsd.download(roi_url, START, END, BANDS, dst_folderpath,
+                              collection=COLLECTION, source="mpc", max_tiles=MAX_TILES,
+                              max_cloudcover=MAX_CLOUDCOVER,
+                              runner="aml", runner_kwargs=runner_kwargs)
     dispatch_timings = _new_dispatch_timings(root, before)
 
     granules = len(TileCatalog(catalog_fp).read())
@@ -932,7 +935,8 @@ def _dry_run_estimate():
 
 def _print_delete_command(prev_run_id: str, az_root: str):
     """D5: the script prints the delete, the operator runs it -- nothing here ever
-    deletes 80 GB by itself.
+    deletes a run prefix by itself. The prefix holds the run's inputs, cubes and outputs;
+    the imagery lives in the shared archive (spec 59 D12), which this never touches.
 
     Account/filesystem/path are resolved from `AZ_ROOT` rather than emitted as
     `"$AZ_FS"`/`"$AZ_ACCOUNT"` shell references: those two are not part of §8.2's
@@ -1021,9 +1025,9 @@ def main(argv=None):
 
         demo.run_step("1_tiling", step_tiling, demo.outdir)
 
-        # Claim the marker HERE, not at run-id allocation: this is the first step that
-        # puts real bytes on blob, so from this line on the prefix is worth a delete
-        # command. A run that never got past preflight leaves the previous (spending)
+        # Claim the marker HERE, not at run-id allocation: from this step the run prefix
+        # holds bytes (the uploaded ROI, then datacubes) worth a delete command. The
+        # imagery itself goes to the shared archive, not under this prefix (spec 59 D12). A run that never got past preflight leaves the previous (spending)
         # run's id intact for the next `--fresh` to print.
         with open(marker, "w") as f:
             f.write(run_id)

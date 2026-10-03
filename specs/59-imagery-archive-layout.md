@@ -9,6 +9,9 @@ summary: The imagery archive is flat per run, keyed by each provider's own item 
 grilling session of 2026-09-29; this document writes them down and adds acceptance criteria.
 **Amended 2026-09-30 (before sign-off):** D7 rewritten — `download` takes `processing=`; D10 rewritten —
 the byte copy was already atomic, the defect is stamping after publishing (§8).
+**Amendment A1 (2026-10-03, SIGNED OFF by the user 2026-10-03):** D5 adds one public helper,
+`fsd.archive_catalog_filepath(dst_folderpath, collection)`, so no caller rebuilds the archive's
+inner layout by hand (found in the D12 review: five hand-built `{root}/{collection}/catalog.parquet`).
 · **Opened:** 2026-09-29
 **Closes:** [#74](https://github.com/nikhilsrajan/fsd/issues/74) (a download stamps its file in place after publishing it — retitled 2026-09-30).
 **Prepares:** [#101](https://github.com/nikhilsrajan/fsd/issues/101) (guard inference against processing
@@ -175,6 +178,21 @@ start/stop times, giving different keys for overlapping data. Not detected; stat
 - `create_training_data(download=True)` derives the root as the catalog's **grandparent**.
 - Preflight raises when a `catalog_filepath`'s parent directory name is not `collection=`, naming both
   — the directory is now part of the contract, so a mismatched pair is caught before any work.
+- **A1 (signed off 2026-10-03).** The archive root is the only path a caller writes; everything under
+  it is fsd's layout. A caller that needs the catalog path *before* downloading (CDSE's
+  `download_resume` takes it as input; a notebook's Settings cell passes it to
+  `create_training_data`) gets it from **`fsd.archive_catalog_filepath(dst_folderpath, collection)`**
+  → `{dst_folderpath}/{collection}/catalog.parquet`, exported in `fsd.__all__`.
+  - **One source of truth:** `download` computes its return value by calling this helper (it wraps
+    the private `_granules.collection_root`), so the returned path and the helper's path cannot
+    diverge.
+  - **Pure path function:** no I/O, no storage configuration, no collection validation — a wrong
+    `collection` already fails D5's directory preflight at the verb that uses the path.
+  - **Name:** not `catalog_filepath`, because six verbs in `fsd.api` take a `catalog_filepath=`
+    parameter that would shadow it inside their bodies.
+  - **Callers move to it:** `demos/e2e_austria.py`, `demos/e2e_austria_aml.py` (or `download`'s
+    return value, where the call comes first), `notebooks/e2e_austria_aml.ipynb`. Tests that *assert*
+    the layout keep the literal path — a contract check spells out the expected answer.
 
 ### D6 — A build over >1 processing of one acquisition raises; `processing=` selects per acquisition
 
@@ -425,6 +443,14 @@ full Austria re-download.
     Either outcome is a result; if it is visible, D10's remote leg becomes a filed follow-up, not a
     silent pass.
 21. Visual QGIS check of one S2 and one S1 cube from the new layout (per `CLAUDE.md`).
+
+**A1 (signed off 2026-10-03)**
+
+22. The offline download test (`tests/test_spec59_p1.py:624`, D5) also asserts the returned path
+    `== fsd.archive_catalog_filepath(root, S2)`; a pure-function test pins the helper for a local
+    root and an `abfss://` root.
+23. No Python under `demos/` and no code cell in a tracked notebook builds `…catalog.parquet` from a
+    collection by hand (a pytest grep). Prose in `docs/` that *explains* the layout is exempt.
 
 **P2 Window A result (2026-09-30, `runbooks/59-p2-window-a.ipynb`): AC 18–21 green.** AC 20: a
 blob upload killed 1.5 s in left **no blob** under the final name (observed once, at one delay; the

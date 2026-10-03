@@ -28,8 +28,8 @@ import fsd
 cfg = fsd.config.load()          # explicit -- fsd's own code never reads this on its own
 ```
 
-**`root` is deliberately NOT in the file** (spec 55 D1). It names a *per-run destination* chosen
-by whoever runs the job, not a durable address, so every fsd verb takes it as an argument
+**`root` is deliberately NOT in the file** (spec 55 D1). It names a *per-run destination* (cubes, outputs) chosen
+by whoever runs the job, not a durable address — the imagery archive is the one shared exception (spec 59 D12), a single root every run reuses — so every fsd verb takes it as an argument
 (`dst_folderpath=`, `output_folderpath=`, `runner_kwargs["root"]`). Nothing writes `AZ_ROOT` —
 `fsd init` does not prompt for it, `fsd config` does not print it, and `--from-env-file` parses
 and drops it. **It is not config.** The callers that need a root — the two tracked notebooks and

@@ -54,13 +54,13 @@ mid-run stop. Run from `fsd/`, venv active.
 # preview: metadata only, zero band bytes
 .venv/bin/python -m fsd.sources.download_cli \
   --roi my_roi.geojson --start 2018-01-01 --end 2019-01-01 \
-  --bands B04 B08 B8A SCL --dst data/s2l2a --catalog data/s2l2a/catalog.parquet \
+  --bands B04 B08 B8A SCL --dst data/imagery --catalog data/imagery/sentinel-2-l2a/catalog.parquet \
   --max-tiles 600 --dry-run
 
 # real run, with a stop-file armed (touch it to stop cleanly; resume by re-running)
 .venv/bin/python -m fsd.sources.download_cli \
   --roi my_roi.geojson --start 2018-01-01 --end 2019-01-01 \
-  --bands B04 B08 B8A SCL --dst data/s2l2a --catalog data/s2l2a/catalog.parquet \
+  --bands B04 B08 B8A SCL --dst data/imagery --catalog data/imagery/sentinel-2-l2a/catalog.parquet \
   --max-tiles 600 --stop-file /tmp/fsd.stop --creds cdse_credentials.json
 # touch /tmp/fsd.stop   # from another terminal, to stop cleanly
 ```
@@ -76,7 +76,7 @@ reads); `proj:code` from the MGRS tile in the product id.
 
 ```python
 from fsd.catalog.catalog import TileCatalog
-TileCatalog("data/s2l2a/catalog.parquet").to_stac("data/s2l2a/stac")   # -> catalog.json
+TileCatalog("data/imagery/sentinel-2-l2a/catalog.parquet").to_stac("data/imagery/sentinel-2-l2a/stac")   # -> catalog.json
 # or: fsd.catalog.stac.tile_catalog_to_items(gdf) / write_stac_catalog(items, dst)
 ```
 
@@ -87,8 +87,9 @@ Module = `src/fsd/catalog/stac.py`. `read_proj=True` adds per-asset `proj:shape/
 
 Full-year, multi-CRS Sentinel-2 L2A download (produced the `satellite_benchmark/` archive —
 **⚠️ that archive was since DELETED for disk space; this recipe is kept as the how-to, but the
-data it made is gone.** The current real-data archive is `fsd/tests/outputs/demo_e2e/imagery/`,
-Austria — see CLAUDE.md).
+data it made is gone.** The real-data archive is now the shared one at
+`fsd/tests/outputs/imagery/` (spec 59 D12; `{archive}/{collection}/catalog.parquet`) — see
+CLAUDE.md, which still names the older `demo_e2e/imagery`).
 Script: `fsd/benchmarks/download_year_ethiopia.py`. Report:
 `benchmarks/download_report_2018_ethiopia.md`.
 
@@ -100,11 +101,12 @@ Microsoft Planetary Computer S2 L2A: anonymous discovery + a **pure COG byte-cop
 ```python
 import datetime
 import geopandas as gpd
+import fsd
 from fsd.catalog.catalog import TileCatalog
 from fsd.sources import mpc
 
 roi = gpd.read_file("shapefiles/s2grid=476da24.geojson")
-catalog = TileCatalog("imagery/catalog.parquet")
+catalog = TileCatalog(fsd.archive_catalog_filepath("imagery", "sentinel-2-l2a"))
 result = mpc.download(
     roi, datetime.datetime(2021, 11, 1), datetime.datetime(2022, 3, 1),
     ["B04"], "imagery", catalog, max_tiles=10, max_cloudcover=60.0, progress=True,

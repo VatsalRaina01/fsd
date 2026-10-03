@@ -91,7 +91,7 @@ CLASS_COLORS = {
 
 OUTDIR = os.path.join(_HERE, "..", "tests/outputs/demo_e2e")       # heavy artifacts (gitignored)
 # Spec 59 D12: ONE shared archive for every run (not under OUTDIR); the catalog lives at
-# `{DATA_DIR}/{collection}/catalog.parquet` (D5).
+# the archive layout (D5; see `fsd.archive_catalog_filepath`).
 DATA_DIR = os.path.join(_HERE, "..", "tests/outputs/imagery")
 FIGDIR = os.path.join(_HERE, "figures")                           # small PNGs (committable)
 
@@ -176,7 +176,7 @@ def step_tiling(fast, roi_run_fp):
 def step_download(creds, download_roi_fp):
     log("2. DOWNLOAD S2 L2A (probe throughput → resume-loop → jp2/COG timing)")
     os.makedirs(DATA_DIR, exist_ok=True)
-    catalog_fp = os.path.join(DATA_DIR, config.SATELLITE_S2L2A, "catalog.parquet")
+    catalog_fp = fsd.archive_catalog_filepath(DATA_DIR, config.SATELLITE_S2L2A)
 
     # 2a) single-threaded baseline probe (achievable CDSE MB/s right now).
     print("  2a) baseline throughput probe (1 file, 1 thread) ...", flush=True)

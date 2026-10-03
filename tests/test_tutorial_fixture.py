@@ -53,7 +53,7 @@ ROI_PATH = os.path.join(FIXTURE_DIR, "roi.geojson")
 pytestmark = pytest.mark.skipif(
     not os.path.exists(CATALOG_PATH),
     reason="tutorial fixture not built yet (run-book 43; spec 42 P6) -- "
-           "tests/data/tutorial/catalog.parquet is absent.",
+           "tests/data/tutorial/sentinel-2-l2a/catalog.parquet is absent.",
 )
 
 BANDS = ["B04", "B08", "SCL"]
