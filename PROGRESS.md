@@ -231,18 +231,20 @@ serve different processings of one Austria-2018 acquisition (spec 59 §1 fact 3)
 acquisition key, D6 raises without `processing=` — but only if both land in one root; today local
 (`e2e_austria.py`) is CDSE-only and blob (AML) is MPC-only.
 
-**Still OPEN for the user (Opus) — do not guess in the Sonnet session:**
+**Merged 2026-10-03 (user). Still OPEN, deferred — not blockers:**
 - **A. Tutorial fixture names break D3/D4/D8:** ids are MPC ids (fail `s2_l2a._NAME_RE`),
   `acquisition_key = id`, `processing_version` null. Rebuild via an updated `build_fixture.py`
   (recommended, ~1–2 h) vs accept (disclosed in CHANGES). Either way the tutorial's claim that
   `build_fixture.py` built the data is false today (it still writes the flat layout).
+  **Undecided (2026-10-03):** the user asked whether tutorials were retired for
+  `e2e_austria_aml.ipynb`. Record: only the doc-following *gate* (D13) was retired; #93 (step 11)
+  still proposes `docs/tutorial.ipynb` on this fixture, with the AML notebook as the cloud example.
+  If #93 keeps that plan, rebuild the fixture there.
 - **B. `data/imagery` (docs) vs spec D12's literal `tests/outputs/imagery`:** recommended = keep
-  `data/imagery`, one-line spec amendment.
-- **Unverified question:** can CDSE (`e2e_austria.py`) and MPC serve *different* processings of one
-  Austria-2018 acquisition into the shared archive (→ D6 raise without `processing=`)? Same
-  processing from both collapses to one row (`source="cdse,mpc"`) by design.
+  `data/imagery`, one-line spec amendment. **Deferred by the user (2026-10-03) to after
+  contributor readiness (step 10).**
 - **Outside the repo:** workspace `CLAUDE.md:28,148` still names `demo_e2e/imagery` as the real-data set.
-Then: `--no-ff` merge into `main`, `git worktree remove`, `git branch -d`; push only when asked.
+**Push pending** (local merge only).
 
 **⚠️ The order changed again (user, 2026-09-29).** After the S1 AML run the user chose the **archive
 layout** as the next task, ahead of P3 and of contributor readiness. Reasons (agreed in-session):
