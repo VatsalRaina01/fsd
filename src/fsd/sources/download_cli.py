@@ -4,8 +4,8 @@ no download logic of its own: parse args, build the `should_stop` closure, call
 `_result.json`.
 
 Run as:  python -m fsd.sources.download_cli --roi roi.geojson --start 2018-04-01 \\
-             --end 2018-06-01 --bands B04 B08 --dst /data/austria --catalog \\
-             /data/austria/catalog.parquet --max-tiles 5 --dry-run
+             --end 2018-06-01 --bands B04 B08 --dst /data/imagery --catalog \\
+             /data/imagery/sentinel-2-l2a/catalog.parquet --max-tiles 5 --dry-run
 """
 
 from __future__ import annotations

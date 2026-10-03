@@ -19,6 +19,7 @@ import rasterio
 import shapely.geometry as sg
 from rasterio.transform import from_origin
 
+import fsd
 from fsd import api, config
 from fsd import collections as _collections
 from fsd.catalog import processing as processing_module
@@ -622,6 +623,7 @@ def test_ac16_a_specifier_fetches_a_at_0500_skips_b_and_says_so(monkeypatch, tmp
                                      processing=">=05.00", max_tiles=10)
     assert fetched == [f"https://mpc/{A_NEW.id}/B04.tif"]
     assert catalog == str(tmp_path / "archive" / S2 / "catalog.parquet")   # D5
+    assert catalog == fsd.archive_catalog_filepath(str(tmp_path / "archive"), S2)   # A1 / AC22
     assert list(TileCatalog(catalog).read()["id"]) == [_canon(A_NEW)]
     out = capsys.readouterr().out
     assert "dropped acquisition S2B_MSIL2A_20180928T100019_R122_T33UWP" in out
@@ -831,3 +833,41 @@ def test_d8_stac_export_writes_the_processing_extension_fields(tmp_path):
     assert props["processing:version"] == "05.00"
     assert props["processing:datetime"] == "2023-09-15T00:06:22Z"
     assert any("processing" in e for e in items[0].stac_extensions)
+
+
+# --- Amendment A1: the archive's catalog path has one owner ---------------------
+
+def test_ac22_archive_catalog_filepath_is_pure_and_exported():
+    assert "archive_catalog_filepath" in fsd.__all__
+    assert fsd.archive_catalog_filepath("/data/imagery", S2) == f"/data/imagery/{S2}/catalog.parquet"
+    assert (fsd.archive_catalog_filepath("abfss://fs@acct.dfs.core.windows.net/imagery", S2)
+            == f"abfss://fs@acct.dfs.core.windows.net/imagery/{S2}/catalog.parquet")
+
+
+def test_ac23_nothing_outside_src_rebuilds_the_catalog_path_by_hand():
+    import json
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    # A catalog.parquet path assembled from a collection: `{...}/{COLLECTION}/catalog.parquet`,
+    # a literal `sentinel-…/catalog.parquet`, or `os.path.join(…, "catalog.parquet")` /
+    # `… / "catalog.parquet"` after a collection-looking argument.
+    coll = r"(?:collection|COLLECTION|SATELLITE_\w+)"
+    by_hand = re.compile(
+        rf"""\{{[^}}]*{coll}[^}}]*\}}/catalog\.parquet"""
+        r"""|sentinel-[\w-]+/catalog\.parquet"""
+        rf"""|{coll}\s*[,/]\s*["']catalog\.parquet["']""")
+
+    def code(text):  # full-line comments are prose (AC 23 exempts explanation)
+        return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+
+    offenders = []
+    for py in (root / "demos").rglob("*.py"):
+        if by_hand.search(code(py.read_text())):
+            offenders.append(str(py.relative_to(root)))
+    for nb in (root / "notebooks").glob("*.ipynb"):
+        for cell in json.loads(nb.read_text())["cells"]:
+            if cell["cell_type"] == "code" and by_hand.search(code("".join(cell["source"]))):
+                offenders.append(str(nb.relative_to(root)))
+    assert not offenders, f"hand-built catalog path (use fsd.archive_catalog_filepath): {offenders}"

@@ -48,12 +48,17 @@ archived verbatim as *"2026-09-12 — resume-block snapshot"* in
    notebooks — plain asserts, no env vars, a Setup cell that checks the `.venv` kernel and loads
    the notebook's own `src/`; `TEMPLATE.ipynb`; `tests/test_notebooks.py` now guards
    `runbooks/*.ipynb`). **Next:** D12's notebook/doc repointing (Austria S2 + the S1
-   blob imagery). Next spec after 59: **#101** (train-vs-inference processing guard).
+   blob imagery; scope in the step-9 notes below), then **contributor readiness** (step 10) -- #101 and the
+   Austria re-download come after it (user, 2026-09-30).
    What P1 left for P2 on purpose: `docs/tutorial.md` and the committed
    `tests/data/tutorial/` fixture still use the pre-59 catalog (flat folders, no acquisition
    columns) -- `tests/test_tutorial_fixture.py` converts a per-test copy into
    `{root}/sentinel-2-l2a/catalog.parquet`; the tutorial's `catalog_filepath=` line will fail D5's
-   preflight until D12 repoints it. Notebooks untouched. The full Austria re-download (P2 part 2,
+   preflight until D12 repoints it. Notebooks untouched. **D12 DONE 2026-10-01 (branch
+   `worktree-spec59-d12`, awaiting review/merge):** fixture re-laid to spec 59 (`tests/data/tutorial/
+   sentinel-2-l2a/YYYY/MM/DD/<id>/` + catalog, no converter), README/how-tos/tutorial/demos/AML notebook
+   repointed to ONE shared archive; `docs_kwarg_sweep.py` = 0 stale. (The remaining text of this item is
+   the pre-D12 state.) The full Austria re-download (P2 part 2,
    ~67 GB) needs `tests/outputs/demo_e2e/imagery` (63 GB, pre-59 layout, unreadable by `main`)
    deleted first -- disk had 26 GB free on 2026-09-30.
    Implementation notes worth knowing: one shared selector `fsd/catalog/processing.py` serves
@@ -164,9 +169,82 @@ instruction above.
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
 | **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 DONE + MERGED 2026-09-12** (`795b117`, `--no-ff`, worktree pruned) — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built) + 2 more by review (`properties_filter` could not filter an int property; `build_datacube` enforced but never applied it), run-book **green incl. QGIS**, pytest **1169 passed / 104 skipped**, ruff clean. `demos/` + notebook updated for P2; **S1 notebook ran green on AML 2026-09-29** (2 real bugs, see "Most recent entry"). **P3 (HLS) now waits behind step 9** | → **9** |
-| **9** | **Imagery archive layout — [spec 59](specs/59-imagery-archive-layout.md)** — **CURRENT (user, 2026-09-29).** `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`; lossless (ADR 0032): two processings coexist, a build over both raises, `processing=` selects per acquisition; `acquisition_key`/`processing_version`/`processing_datetime`/`source` columns; closes #74 | **spec SIGNED OFF 2026-09-30**; P1 implemented + reviewed, then the P2 re-download run-book | → **#101** spec (processing guard), then **10** |
-| **10** | **Contributor readiness** — CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff` | → spec 58 **P3 (HLS)** — order vs. step 10 not yet confirmed; P3 could be the first "real contribution" under the new process |
+| **9** | **Imagery archive layout — [spec 59](specs/59-imagery-archive-layout.md)** — **CURRENT (user, 2026-09-29).** `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`; lossless (ADR 0032): two processings coexist, a build over both raises, `processing=` selects per acquisition; `acquisition_key`/`processing_version`/`processing_datetime`/`source` columns; closes #74 | **spec SIGNED OFF 2026-09-30**; P1 merged; **P2 Window A run-book GREEN + merged + pushed 2026-09-30** (`77ac790`). **Left: D12 repointing ONLY** (next row's order) | → **D12**, then **10** |
+| **10** | **Contributor readiness** — CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff`. **Includes our own workflow** (feature branches for user + Claude, not always `main`; user, 2026-09-30) | → **#101** spec + the full Austria re-download (first branch-based work), then spec 58 **P3 (HLS)** |
 | **11** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
+
+**⚠️ The order changed again (user, 2026-09-30).** After 59-P2's Window A run went green, the user
+chose: **spec 59 D12 repointing → contributor readiness (step 10)**, moving the **#101 spec** and the
+**full Austria re-download** (P2 part 2) to after step 10. Reasons (agreed in-session): D12 is the
+only remaining step-9 work a contributor would *see* (docs teaching a layout `main` refuses); the
+re-download only changes local data; #101 is a new feature and can be the first thing built on a
+feature branch under the new process. Scope added to step 10 the same day: **we** (user + Claude)
+also move to feature branches instead of always landing on `main`.
+
+**D12 scope (for the implementing session; spec 59 §D12, signed off):** repoint `dst_folderpath` /
+`catalog_filepath` to ONE shared archive (`{AZ_ROOT}/imagery` on blob, `tests/outputs/imagery`
+locally; catalog = `{root}/{collection}/catalog.parquet`) in: `demos/e2e_austria.py`,
+`demos/e2e_austria_aml.py`, `demos/E2E_AUSTRIA.md`, `notebooks/e2e_austria_aml.ipynb`, `README.md`,
+`docs/tutorial.md`, `docs/howto/{download-real-imagery,your-own-region,run-at-scale,bundle-your-model}.md`,
+`docs/reference/environment.md` (found by grep 2026-09-30 -- re-grep, the list may be incomplete;
+`docs/progress-archive.md` is history, leave it). Plus re-lay-out the committed tutorial fixture
+`tests/data/tutorial/` (27 MB, flat pre-59 folders + pre-59 catalog) so `test_tutorial_fixture.py`
+stops converting a per-test copy. Pytest never runs a notebook cell or a fenced block: use
+`docs_kwarg_sweep.py` (memory `docs-call-sites-rot-silently`). Implementation = a Sonnet session
+(spec 24 D3). After D12, local demos point at `tests/outputs/imagery`, which is EMPTY until someone
+downloads -- the old `tests/outputs/demo_e2e/imagery` (63 GB, pre-59) is unreadable by `main`.
+
+**D12 review (Opus, 2026-10-01 → 10-03) — branch `worktree-spec59-d12` @ `cdf6b2d`, NOT merged.**
+Two-axis review done. **The "−3 tests" drift is not a regression:** the main checkout holds two
+untracked `benchmarks/datacube_throughput_report_{cog,jp2}.md`; `test_docs.py` globs
+`benchmarks/*.md` (1 pass + 1 skip each). Clean `main` = 1235/105; branch = 1236/105 (+1 new test).
+**Spec 59 amendment A1 SIGNED OFF (user, 2026-10-03):** public
+`fsd.archive_catalog_filepath(dst_folderpath, collection)` (spec 59 D5 bullet A1, AC 22–23).
+
+**Implementing session (Sonnet, /effort medium) — do in this worktree, then pytest + ruff +
+`docs_kwarg_sweep.py`:**
+1. **A1 helper:** define it in `src/fsd/api.py` (wraps `_granules.collection_root` +
+   `"catalog.parquet"`); `download` computes its return value through it (`api.py:~459`); export in
+   `fsd/__init__.py` `__all__`. AC 22: extend `tests/test_spec59_p1.py:624` to assert equality with
+   the helper, plus a pure test (local + `abfss://` root). AC 23: pytest grep — no Python in `demos/`
+   and no code cell in a tracked notebook builds `…catalog.parquet` from a collection by hand.
+2. **Move callers to it:** `demos/e2e_austria.py:179`; `demos/e2e_austria_aml.py:703` (or use
+   `fsd.download`'s return at :723, and pass `collection=COLLECTION` there); notebook
+   `ARCHIVE_CATALOG`. Lift the `f"{az_root}/imagery"` literal (`e2e_austria_aml.py:702`) to a
+   module-level setting.
+3. **AML demo bug:** `_assert_archive_trustworthy` globs `{dst}/**` (`e2e_austria_aml.py:652`) — over
+   the whole shared archive now (S1 + other ROIs). Glob `{dst}/{COLLECTION}/**`. Fix its stale
+   docstrings ("deletes 80 GB", "first step that puts real bytes on blob" under the run prefix).
+4. **Stale docs:** `RECIPES.md:57,63,79` (flat `data/s2l2a/catalog.parquet`), `:90` (calls
+   `demo_e2e/imagery` current), `:107`; `tests/test_tutorial_fixture.py:56` skip reason names the old
+   catalog path; `docs/reference/environment.md:30` says "per-run destination" (D12: one shared archive).
+
+**Opus review of `878b8fc` (2026-10-03): green, 4 small fixes (uncommitted until the user says).**
+Full suite on `878b8fc` 1238 passed / 105 skipped. AML `step_download` is correct (`download`
+returns the helper's path on the `aml` branch too). Fixes: AC 23's grep now skips full-line comments
+and also catches a literal `sentinel-…/catalog.parquet`, pathlib `/`, any `SATELLITE_*` (mutation-
+checked both ways); new trust test — an S1 granule in the shared archive is not "undeclared"
+(fails if the glob scope is reverted); the demo comment wrongly said other ROIs fall out of scope
+(they share the catalog); `download_cli.py` docstring + RECIPES (`tests/outputs/imagery` is empty
+until the re-download, not "now" the archive). **Answered:** CDSE (N0500) and MPC (Esri N0212) do
+serve different processings of one Austria-2018 acquisition (spec 59 §1 fact 3) → two folders, one
+acquisition key, D6 raises without `processing=` — but only if both land in one root; today local
+(`e2e_austria.py`) is CDSE-only and blob (AML) is MPC-only.
+
+**Merged 2026-10-03 (user). Still OPEN, deferred — not blockers:**
+- **A. Tutorial fixture names break D3/D4/D8:** ids are MPC ids (fail `s2_l2a._NAME_RE`),
+  `acquisition_key = id`, `processing_version` null. Rebuild via an updated `build_fixture.py`
+  (recommended, ~1–2 h) vs accept (disclosed in CHANGES). Either way the tutorial's claim that
+  `build_fixture.py` built the data is false today (it still writes the flat layout).
+  **Undecided (2026-10-03):** the user asked whether tutorials were retired for
+  `e2e_austria_aml.ipynb`. Record: only the doc-following *gate* (D13) was retired; #93 (step 11)
+  still proposes `docs/tutorial.ipynb` on this fixture, with the AML notebook as the cloud example.
+  If #93 keeps that plan, rebuild the fixture there.
+- **B. `data/imagery` (docs) vs spec D12's literal `tests/outputs/imagery`:** recommended = keep
+  `data/imagery`, one-line spec amendment. **Deferred by the user (2026-10-03) to after
+  contributor readiness (step 10).**
+- **Outside the repo:** workspace `CLAUDE.md:28,148` still names `demo_e2e/imagery` as the real-data set.
+**Push pending** (local merge only).
 
 **⚠️ The order changed again (user, 2026-09-29).** After the S1 AML run the user chose the **archive
 layout** as the next task, ahead of P3 and of contributor readiness. Reasons (agreed in-session):

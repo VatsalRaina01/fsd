@@ -60,7 +60,7 @@ catalog = fsd.download(
     roi="your_roi.geojson",
     startdate=..., enddate=...,
     bands=["B04", "B08", "B8A", "SCL"],
-    dst_folderpath="data/s2l2a",
+    dst_folderpath="data/imagery",   # one shared archive, reused across runs
     creds=CdseCredentials.from_env(),
     max_tiles=20,   # refuses the run if more than 20 granules would be pulled
 )

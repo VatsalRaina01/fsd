@@ -29,7 +29,7 @@ from fsd.sources.cdse import CdseCredentials
 catalog = fsd.download(
     roi="your_roi.geojson",
     startdate=..., enddate=..., bands=["B04", "B08", "B8A", "SCL"],
-    dst_folderpath="data/s2l2a",
+    dst_folderpath="data/imagery",   # one shared archive, reused across runs
     creds=CdseCredentials.from_env(),   # or source="mpc" for anonymous MPC
     max_tiles=20,                       # required cost guardrail -- see below
 )

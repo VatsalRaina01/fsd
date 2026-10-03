@@ -61,6 +61,7 @@ __all__ = [
     "InferenceResult",
     "PreflightError",
     "TrainingData",
+    "archive_catalog_filepath",
     "compute_n_timestamps",
     "create_training_data",
     "deploy",
@@ -91,6 +92,16 @@ class PreflightError(ValueError):
 
 
 # --- helpers -----------------------------------------------------------------
+
+def archive_catalog_filepath(dst_folderpath: str, collection: str) -> str:
+    """`{dst_folderpath}/{collection}/catalog.parquet` -- the catalog of one collection.
+
+    The archive root is the only path a caller writes; this is how to name the catalog
+    inside it without rebuilding the layout by hand (spec 59 D5/A1). Pure: no I/O, no
+    storage configuration, no collection validation.
+    """
+    return os.path.join(collection_root(dst_folderpath, collection), "catalog.parquet")
+
 
 def compute_n_timestamps(
     startdate: datetime.datetime, enddate: datetime.datetime, mosaic_days: int
@@ -456,8 +467,7 @@ def download(
     # Spec 59 D5: `dst_folderpath` is the archive root; the catalog lives in the
     # collection's own directory.
     fs.makedirs(dst_folderpath)
-    catalog_filepath = os.path.join(collection_root(dst_folderpath, collection),
-                                    "catalog.parquet")
+    catalog_filepath = archive_catalog_filepath(dst_folderpath, collection)
     fs.makedirs(os.path.dirname(catalog_filepath))
 
     if runner == "aml":

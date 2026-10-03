@@ -175,7 +175,8 @@ def _build_archive(tmp_path, *, granules=3, sidecar=True, offset=-1000, nodata=N
                    drop_asset=None, extra_object=False, mpc_style_ids=False,
                    cog_offset=None, cog_scale=None):
     """A miniature imagery archive on disk + its catalog, laid out exactly as a download
-    leaves it: `<imagery>/<…>/<granule_id>/{B04.tif,SCL.tif,MTD_TL.xml}`, with `files`
+    leaves it (spec 59 D2): `<imagery>/<collection>/YYYY/MM/DD/<granule_id>/{B04.tif,SCL.tif,
+    MTD_TL.xml}`, catalog at `<imagery>/<collection>/catalog.parquet`, with `files`
     holding bare basenames (identical on every row) -- the property that makes a
     basename-keyed check vacuous.
 
@@ -196,7 +197,7 @@ def _build_archive(tmp_path, *, granules=3, sidecar=True, offset=-1000, nodata=N
         gid = (f"S2B_MSIL2A_2018092{i}T100019_R122_T33UWQ_20230710T00134{i}"
                if mpc_style_ids else
                f"S2B_MSIL2A_2018092{i}T100019_N0500_R122_T33UWQ_20230710T00134{i}")
-        folder = imagery / "Sentinel-2" / "MSI" / "L2A_N0500" / "2018" / "09" / f"2{i}" / gid
+        folder = imagery / config.SATELLITE_S2L2A / "2018" / "09" / f"2{i}" / gid
         folder.mkdir(parents=True)
         names = ["B04.tif", "SCL.tif"] + (["MTD_TL.xml"] if sidecar else [])
         for name in names:
@@ -222,12 +223,12 @@ def _build_archive(tmp_path, *, granules=3, sidecar=True, offset=-1000, nodata=N
             geometry=sg.box(i, i, i + 1, i + 1),
         ))
     if extra_object:
-        stray = imagery / "Sentinel-2" / "MSI" / "L2A_N0500" / "2018" / "09" / "99" / "leftover"
+        stray = imagery / config.SATELLITE_S2L2A / "2018" / "09" / "99" / "leftover"
         stray.mkdir(parents=True)
         _write_tif(stray / "B04.tif", scale=config.S2_REFLECTANCE_SCALE,
                    offset=offset * config.S2_REFLECTANCE_SCALE, nodata=eff_nodata)
 
-    catalog_fp = str(imagery / "catalog.parquet")
+    catalog_fp = str(imagery / config.SATELLITE_S2L2A / "catalog.parquet")
     TileCatalog(catalog_fp, declaration=CollectionDeclaration(reference_band="B08")).append(rows)
     return catalog_fp, str(imagery)
 
@@ -257,6 +258,17 @@ def test_archive_trust_surfaces_undeclared_objects_without_failing(tmp_path):
     re-run's leftovers), so this is counted and reported, not fatal."""
     catalog_fp, imagery = _build_archive(tmp_path, extra_object=True)
     assert demo._assert_archive_trustworthy(catalog_fp, imagery)["n_undeclared_objects"] == 1
+
+
+def test_archive_trust_ignores_another_collection_in_the_shared_archive(tmp_path):
+    """Spec 59 D12: the archive is shared, so S1 granules sit beside S2 under one root.
+    They are another catalog's business -- an unscoped `**` glob would count them as
+    this catalog's undeclared objects."""
+    catalog_fp, imagery = _build_archive(tmp_path)
+    s1 = tmp_path / "imagery" / "sentinel-1-rtc" / "2018" / "06" / "26" / "S1B_IW_GRDH_rtc"
+    s1.mkdir(parents=True)
+    _write_tif(s1 / "vv.tif", scale=1.0, offset=0.0, nodata=0)
+    assert demo._assert_archive_trustworthy(catalog_fp, imagery)["n_undeclared_objects"] == 0
 
 
 def test_archive_trust_rejects_an_offset_its_own_baseline_contradicts(tmp_path):

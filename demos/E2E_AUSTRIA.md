@@ -80,7 +80,7 @@ dispatch later):
 .venv-modeldeploy/bin/python -m fsd.sources.download_cli \
     --roi shapefiles/AT_ROI.geojson --start 2018-04-01 --end 2018-09-30 \
     --bands B04 B08 B8A SCL --max-cloudcover 70 \
-    --dst tests/outputs/demo_e2e/imagery --catalog tests/outputs/demo_e2e/imagery/catalog.parquet \
+    --dst tests/outputs/imagery --catalog tests/outputs/imagery/sentinel-2-l2a/catalog.parquet \
     --max-tiles 200 --dry-run
 ```
 
@@ -156,13 +156,13 @@ is memory-heavy; defaults to `max(1, cores//4)`).
 **Tip:** before a large first pull, **size the download** with the runner's `--dry-run` (§2) — it
 reports the granule count with zero bytes fetched, so you can sanity-check disk + time up front.
 
-The 7 steps and what they produce (all heavy artifacts under `tests/outputs/demo_e2e/`, gitignored):
+The 7 steps and what they produce (heavy artifacts under `tests/outputs/demo_e2e/`, gitignored — except the imagery, which lives in the ONE shared archive `tests/outputs/imagery/`, spec 59 D12):
 
 | step | produces |
 |------|----------|
 | 0 preflight | validates creds + inputs |
 | 1 tiling | `inference_s2_grids.geojson` + `figures/s2_grids.png` |
-| 2 download | `imagery/catalog.parquet` + local COGs; the timing report (§8) |
+| 2 download | `tests/outputs/imagery/sentinel-2-l2a/catalog.parquet` + local COGs (shared archive); the timing report (§8) |
 | 3 training data | `training_data/features.npy` — **one row per labelled field** (`aggregate="median_per_id"`) — (+ raw per-pixel `data.npy`) |
 | 4 train + bundle | `rf.joblib` + `bundle/` (`bundle.json` + artifact) |
 | 5 run_inference | `model_outputs/<cell>/output.tif` per cell + `stac/` + `merged.tif` |

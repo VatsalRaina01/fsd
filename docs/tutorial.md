@@ -103,7 +103,7 @@ enddate = datetime.datetime(2018, 9, 29)
 
 training = fsd.create_training_data(
     label_polygons="tests/data/tutorial/fields.geojson",
-    catalog_filepath="tests/data/tutorial/catalog.parquet",
+    catalog_filepath="tests/data/tutorial/sentinel-2-l2a/catalog.parquet",
     startdate=startdate, enddate=enddate, mosaic_days=20,
     bands=["B04", "B08", "SCL"],
     id_col="fid", label_col="label",
@@ -159,7 +159,7 @@ from fsd.workflows import create_datacube
 
 csv_filepath = "/tmp/fsd_tutorial/infer_build/input.csv"
 create_datacube.run_create_datacube(
-    catalog_filepath="tests/data/tutorial/catalog.parquet", timestamp_col="timestamp",
+    catalog_filepath="tests/data/tutorial/sentinel-2-l2a/catalog.parquet", timestamp_col="timestamp",
     shapefilepath="tests/data/tutorial/roi.geojson", id_col="id",
     run_folderpath="/tmp/fsd_tutorial/infer_build",
     startdate=startdate, enddate=enddate, bands=["B04", "B08", "SCL"],

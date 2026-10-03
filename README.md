@@ -51,7 +51,7 @@ catalog = fsd.download(
     startdate=datetime.datetime(2018, 1, 1),
     enddate=datetime.datetime(2019, 1, 1),
     bands=["B04", "B08", "B8A", "SCL"],
-    dst_folderpath="data/s2l2a",
+    dst_folderpath="data/imagery",   # ONE shared archive for every run; a repeat run downloads nothing new
     source="mpc",   # no creds. For CDSE: source="cdse" + creds=CdseCredentials.from_env()
     max_tiles=20,   # required cost guardrail: refuse the run if the ROI matches more
 )                   # than this many MGRS granules. Preflight checks it before any spend.
