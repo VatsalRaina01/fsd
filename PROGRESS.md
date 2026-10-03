@@ -15,7 +15,18 @@ AC15 run-book outcome, the Opus review's findings, the S1 notebook prep, D18's w
 archived verbatim as *"2026-09-12 — resume-block snapshot"* in
 [`docs/progress-archive.md`](docs/progress-archive.md).
 
-**THE NEXT ACTIONS, in order:**
+**NOW (2026-10-03): step 10, contributor readiness — GRILL FIRST, then spec.** Spec 59 D12 is
+**merged** (`7c5493e`, `--no-ff`; its worktree + branch pruned). **`main` is ahead of
+`origin/main`; the push is the user's call.** The next session is **Opus, `/effort high`**:
+(1) the `grilling` skill over the "Grilling agenda" in memory note `contributor-readiness-kickoff`
+(verify its point-in-time findings first; the user asked for conflicts *not yet foreseen*, so the
+list is a floor); (2) a spec — spec-first, because it changes repo conventions (numbering,
+changelog, CI, the branch workflow in the workspace `CLAUDE.md`) — cross-validated with per-source
+credit; (3) sign-off. **No implementation in that session.** Carried in: spec 59 open item **B**
+(`data/imagery` vs `tests/outputs/imagery` in docs) is decided **after** contributor readiness
+(user, 2026-10-03); item **A** (tutorial fixture names) is parked with #93.
+
+**THE NEXT ACTIONS, in order (history — all four done; kept until the next entry archives them):**
 
 1. ~~Commit the main checkout's notebooks~~ — **done**; the main checkout is clean.
 2. ~~Push `main`~~ — **done** (pushed at `d8aa8dd`, 0 ahead of `origin/main`), so `EnterWorktree`
@@ -77,8 +88,7 @@ Test archive: **184 granules / 67.2 GB / `B04,B08,SCL` from MPC**, radiometry co
 (P3's AC17 needs it).
 
 **Before trusting anything below, re-verify rather than assume.** Cheap checks:
-`.venv/bin/python -m pytest -q` (expect **1235 passed / 105 skipped**, measured 2026-09-30 in the `spec59-p2` worktree (d8aa8dd + the run-book-notebook guards)
-+ this run-book; P1's own entry recorded 1218 / 105), `.venv/bin/ruff check src tests`, `git log --oneline -5`, `gh issue list`.
+`.venv/bin/python -m pytest -q` (expect **≈1239 passed / 105 skipped** on `main` @ `7c5493e`: 1238 measured 2026-10-03 on the D12 branch + 1 review test), `.venv/bin/ruff check src tests`, `git log --oneline -5`, `gh issue list`.
 A quiet stretch in the git log is a break, not a stall — do not read it as a problem to diagnose.
 
 ### ⚠️ Three obligations OUTSIDE this repo, still open
@@ -169,8 +179,8 @@ instruction above.
 | ~~**6**~~ | ~~**[#80](https://github.com/nikhilsrajan/fsd/issues/80)** — snakemake/s3fs → extras~~ | **DONE 2026-09-04** — core 689 → 578 MB; **AML node images need `local` and must be rebuilt** | → **7** |
 | ~~**7**~~ | ~~**[#82](https://github.com/nikhilsrajan/fsd/issues/82)** — cut + push `v0.1.0`~~ | **DONE 2026-09-04** — the tag is cut | → **8** |
 | **8** | **[spec 58](specs/58-collection-agnostic-verbs.md)** — **CURRENT.** Collection-agnostic verbs: P1 contract → P2 `sentinel-1-rtc` → P3 HLS | **P1 IMPLEMENTED + REVIEWED + MERGED 2026-09-05** (`--no-ff` onto `main`, worktree pruned; **local, unpushed**). Review fixed one real bug + two untested ACs; pytest **1100 passed / 102 skipped**, ruff clean. Re-download run-book **DONE 2026-09-07** (184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50, **B8A deferred**; 3 real bugs found by running it). **P2 spec amended + SIGNED OFF 2026-09-11** (`6220256`). **P2 DONE + MERGED 2026-09-12** (`795b117`, `--no-ff`, worktree pruned) — 2 real bugs found while implementing (S1 offset derivation, `reference_band=None` never actually built) + 2 more by review (`properties_filter` could not filter an int property; `build_datacube` enforced but never applied it), run-book **green incl. QGIS**, pytest **1169 passed / 104 skipped**, ruff clean. `demos/` + notebook updated for P2; **S1 notebook ran green on AML 2026-09-29** (2 real bugs, see "Most recent entry"). **P3 (HLS) now waits behind step 9** | → **9** |
-| **9** | **Imagery archive layout — [spec 59](specs/59-imagery-archive-layout.md)** — **CURRENT (user, 2026-09-29).** `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`; lossless (ADR 0032): two processings coexist, a build over both raises, `processing=` selects per acquisition; `acquisition_key`/`processing_version`/`processing_datetime`/`source` columns; closes #74 | **spec SIGNED OFF 2026-09-30**; P1 merged; **P2 Window A run-book GREEN + merged + pushed 2026-09-30** (`77ac790`). **Left: D12 repointing ONLY** (next row's order) | → **D12**, then **10** |
-| **10** | **Contributor readiness** — CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff`. **Includes our own workflow** (feature branches for user + Claude, not always `main`; user, 2026-09-30) | → **#101** spec + the full Austria re-download (first branch-based work), then spec 58 **P3 (HLS)** |
+| **9** | **Imagery archive layout — [spec 59](specs/59-imagery-archive-layout.md)** — **DONE 2026-10-03.** `{root}/{collection}/YYYY/MM/DD/{canonical granule name}/`; lossless (ADR 0032): two processings coexist, a build over both raises, `processing=` selects per acquisition; `acquisition_key`/`processing_version`/`processing_datetime`/`source` columns; closes #74 | **spec SIGNED OFF 2026-09-30**; P1 merged; **P2 Window A run-book GREEN + merged + pushed 2026-09-30** (`77ac790`). **D12 merged 2026-10-03** (`7c5493e`; A1 `fsd.archive_catalog_filepath`). Left for later: open items A (with #93), B (after step 10), the full Austria re-download (after step 10) | → **10** |
+| **10** | **Contributor readiness** — **CURRENT (2026-10-03): grilling → spec → sign-off.** CI, in-repo `AGENTS.md`/`CONTRIBUTING.md`, branch-safe spec/ADR numbering, conflict-free changelog/progress files, a fresh-clone contributor dry run | **wants its own spec + a clean session** (user, 2026-09-29). Start from memory note `contributor-readiness-kickoff`. **Includes our own workflow** (feature branches for user + Claude, not always `main`; user, 2026-09-30) | → **#101** spec + the full Austria re-download (first branch-based work), then spec 58 **P3 (HLS)** |
 | **11** | **[#93](https://github.com/nikhilsrajan/fsd/issues/93)** — Front door: README → tutorial → how-tos | **wants its own spec** (touches spec 41 D1's audience table + ADR 0026) | → `v0.2.0` is cut after spec 58 P3 |
 
 **⚠️ The order changed again (user, 2026-09-30).** After 59-P2's Window A run went green, the user
