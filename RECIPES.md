@@ -87,9 +87,10 @@ Module = `src/fsd/catalog/stac.py`. `read_proj=True` adds per-asset `proj:shape/
 
 Full-year, multi-CRS Sentinel-2 L2A download (produced the `satellite_benchmark/` archive —
 **⚠️ that archive was since DELETED for disk space; this recipe is kept as the how-to, but the
-data it made is gone.** The real-data archive is now the shared one at
-`fsd/tests/outputs/imagery/` (spec 59 D12; `{archive}/{collection}/catalog.parquet`) — see
-CLAUDE.md, which still names the older `demo_e2e/imagery`).
+data it made is gone.** Spec 59 D12 moves the real-data archive to the shared
+`fsd/tests/outputs/imagery/` (`{archive}/{collection}/catalog.parquet`), which stays **empty until
+the Austria re-download**; the older `demo_e2e/imagery` that CLAUDE.md names is pre-59 and current
+code does not read it).
 Script: `fsd/benchmarks/download_year_ethiopia.py`. Report:
 `benchmarks/download_report_2018_ethiopia.md`.
 

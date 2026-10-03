@@ -260,6 +260,17 @@ def test_archive_trust_surfaces_undeclared_objects_without_failing(tmp_path):
     assert demo._assert_archive_trustworthy(catalog_fp, imagery)["n_undeclared_objects"] == 1
 
 
+def test_archive_trust_ignores_another_collection_in_the_shared_archive(tmp_path):
+    """Spec 59 D12: the archive is shared, so S1 granules sit beside S2 under one root.
+    They are another catalog's business -- an unscoped `**` glob would count them as
+    this catalog's undeclared objects."""
+    catalog_fp, imagery = _build_archive(tmp_path)
+    s1 = tmp_path / "imagery" / "sentinel-1-rtc" / "2018" / "06" / "26" / "S1B_IW_GRDH_rtc"
+    s1.mkdir(parents=True)
+    _write_tif(s1 / "vv.tif", scale=1.0, offset=0.0, nodata=0)
+    assert demo._assert_archive_trustworthy(catalog_fp, imagery)["n_undeclared_objects"] == 0
+
+
 def test_archive_trust_rejects_an_offset_its_own_baseline_contradicts(tmp_path):
     """The invisible failure D14 exists for: `N0500` implies -1000, so a row declaring
     0 means every reflectance built from this archive is ~1000 DN high and the pipeline

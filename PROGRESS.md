@@ -219,6 +219,18 @@ untracked `benchmarks/datacube_throughput_report_{cog,jp2}.md`; `test_docs.py` g
    `demo_e2e/imagery` current), `:107`; `tests/test_tutorial_fixture.py:56` skip reason names the old
    catalog path; `docs/reference/environment.md:30` says "per-run destination" (D12: one shared archive).
 
+**Opus review of `878b8fc` (2026-10-03): green, 4 small fixes (uncommitted until the user says).**
+Full suite on `878b8fc` 1238 passed / 105 skipped. AML `step_download` is correct (`download`
+returns the helper's path on the `aml` branch too). Fixes: AC 23's grep now skips full-line comments
+and also catches a literal `sentinel-…/catalog.parquet`, pathlib `/`, any `SATELLITE_*` (mutation-
+checked both ways); new trust test — an S1 granule in the shared archive is not "undeclared"
+(fails if the glob scope is reverted); the demo comment wrongly said other ROIs fall out of scope
+(they share the catalog); `download_cli.py` docstring + RECIPES (`tests/outputs/imagery` is empty
+until the re-download, not "now" the archive). **Answered:** CDSE (N0500) and MPC (Esri N0212) do
+serve different processings of one Austria-2018 acquisition (spec 59 §1 fact 3) → two folders, one
+acquisition key, D6 raises without `processing=` — but only if both land in one root; today local
+(`e2e_austria.py`) is CDSE-only and blob (AML) is MPC-only.
+
 **Still OPEN for the user (Opus) — do not guess in the Sonnet session:**
 - **A. Tutorial fixture names break D3/D4/D8:** ids are MPC ids (fail `s2_l2a._NAME_RE`),
   `acquisition_key = id`, `processing_version` null. Rebuild via an updated `build_fixture.py`

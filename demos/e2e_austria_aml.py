@@ -643,7 +643,8 @@ def _assert_archive_trustworthy(catalog_fp: str, dst_folderpath: str) -> dict:
     # declares `MTD_TL.xml` alongside the bands -- is globbed for rather than reported
     # as missing from a listing that never looked for it.
     # Scoped to this collection's directory: `dst_folderpath` is the ONE shared archive
-    # (spec 59 D12), so a bare `**` glob would also list S1 and other ROIs' granules.
+    # (spec 59 D12), so a bare `**` glob would also list other collections' granules (S1).
+    # Other ROIs' granules of THIS collection are in scope: they share this catalog.
     declared: set[str] = set()
     for _, row in rows.iterrows():
         granule = str(row["local_folderpath"]).rstrip("/").replace("\\", "/").split("/")[-1]

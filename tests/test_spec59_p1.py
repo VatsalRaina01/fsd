@@ -850,17 +850,24 @@ def test_ac23_nothing_outside_src_rebuilds_the_catalog_path_by_hand():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    # A catalog.parquet path assembled from a collection: `{...}/{COLLECTION}/catalog.parquet`
-    # or `os.path.join(..., "catalog.parquet")` with a collection-looking argument.
+    # A catalog.parquet path assembled from a collection: `{...}/{COLLECTION}/catalog.parquet`,
+    # a literal `sentinel-…/catalog.parquet`, or `os.path.join(…, "catalog.parquet")` /
+    # `… / "catalog.parquet"` after a collection-looking argument.
+    coll = r"(?:collection|COLLECTION|SATELLITE_\w+)"
     by_hand = re.compile(
-        r"""\{[^}]*(?:collection|COLLECTION|SATELLITE_S2L2A)[^}]*\}/catalog\.parquet"""
-        r"""|(?:collection|COLLECTION|SATELLITE_S2L2A)\s*,\s*["']catalog\.parquet["']""")
+        rf"""\{{[^}}]*{coll}[^}}]*\}}/catalog\.parquet"""
+        r"""|sentinel-[\w-]+/catalog\.parquet"""
+        rf"""|{coll}\s*[,/]\s*["']catalog\.parquet["']""")
+
+    def code(text):  # full-line comments are prose (AC 23 exempts explanation)
+        return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+
     offenders = []
     for py in (root / "demos").rglob("*.py"):
-        if by_hand.search(py.read_text()):
+        if by_hand.search(code(py.read_text())):
             offenders.append(str(py.relative_to(root)))
     for nb in (root / "notebooks").glob("*.ipynb"):
         for cell in json.loads(nb.read_text())["cells"]:
-            if cell["cell_type"] == "code" and by_hand.search("".join(cell["source"])):
+            if cell["cell_type"] == "code" and by_hand.search(code("".join(cell["source"]))):
                 offenders.append(str(nb.relative_to(root)))
     assert not offenders, f"hand-built catalog path (use fsd.archive_catalog_filepath): {offenders}"
