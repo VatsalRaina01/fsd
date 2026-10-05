@@ -1,0 +1,477 @@
+---
+status: current
+summary: Make fsd contributable by teammates (by hand or through their own agents) and maintainable by a future human maintainer without an agent. Every change reaches a protected `main` through a pull request that passes four gates (CI green, linked issue or short spec, non-author review, real-run evidence where data/cloud/pixels are touched). Add CI with a weekly scheduled run and golden-file tests for on-disk formats. Number specs by their tracking issue, keep ADRs sequential, and have CI fail on duplicate numbers. Freeze the indexes, keep a small set of living docs, and delete and disperse the rest behind an archive tag. Add an in-repo `AGENTS.md` that includes a prior-art rule. Make shared registry aliases move only from `main`. Rename the project and transfer it to the `nasaharvest` org last.
+issue: "#102"
+---
+
+# Spec 102 — contributor readiness
+
+**Status:** **SIGNED OFF (user, 2026-10-05)**, including §9's two questions. Decisions D1–D18 were each
+confirmed by the user in the grilling session of 2026-10-03 → 2026-10-05; this document writes them down
+and adds acceptance criteria. **Amended before sign-off:** D6 switched from `<spec>-<n>` ADR ids to sequential
+numbers (Q1), and D5 made the `issue:` header required (Q2).
+**Tracking issue:** [#102](https://github.com/nikhilsrajan/fsd/issues/102). This is the first spec
+numbered by its own tracking issue (D5).
+**Related:** [spec 24](24-working-contract.md) (the working contract this partly supersedes),
+[spec 41](41-docs-refactor.md) (point-in-time vs living docs; ADRs
+[0022](../docs/adr/0022-documents-are-point-in-time-or-continuously-true.md) and
+[0023](../docs/adr/0023-three-value-status-header-process-state-in-the-index.md)), ADR
+[0025](../docs/adr/0025-one-fact-one-home.md) (one home per fact).
+
+---
+
+## 1. Problem
+
+fsd was built by one person working almost entirely through an agent, and its working contract
+lives outside the repo, in a workspace `CLAUDE.md` and about 40 memory notes. Measured on `main` @ `bc01d19`
+(2026-10-03):
+
+- **Nothing checks a contribution.** There is no `.github/`, no CI, no `CONTRIBUTING.md` and no
+  `AGENTS.md`. A contributor's agent never sees the rules, because they live outside the repo.
+- **Parallel branches collide.** Specs and ADRs are numbered sequentially, and `18-` is already used twice.
+  Hand-edited index tables have gone stale (`specs/README.md` stops at spec 47, even though ADR 0023 calls it
+  "regenerated"). Several files are appended to by every change. Commits touching each one since
+  2026-06: `PROGRESS.md` 209, `CHANGES.md` 76, `TODO.md` 56, `RECIPES.md` 43.
+- **Only an agent can sustain the documentation load.** A typical change writes or updates a spec
+  (with per-source credit), ADRs, `CHANGES.md`, `PROGRESS.md` (plus its archive), `RECIPES.md`, index
+  rows and a run-book notebook. A developer without an agent faces a high barrier to entry, and so does
+  the future maintainer: **ownership will transfer** (user, 2026-10-05).
+- **Shared cloud state is last-writer-wins by default.** `fsd.aml.ensure_environment(alias="current")`
+  (`src/fsd/aml/__init__.py:79`) means any AML run, including a test of a branch, silently repoints the shared
+  `current` image.
+- **On-disk format versions can collide silently.** Two branches that both change `BUNDLE_VERSION = 2` to
+  `= 3` make the same edit, so git merges them without a conflict. `BUNDLE_VERSION` has no history
+  comment at all.
+- **Tracked files contain the owner's own paths.** Eight `benchmarks/*.py` scripts hard-code an absolute home
+  directory, and `notebooks/e2e_austria_aml.ipynb`, `demos/E2E_AUSTRIA_AML.md` and
+  `runbooks/59-p2-window-a.ipynb` hard-code a personal blob root.
+- **Data licensing is unresolved on paper.** `notebooks/shapefiles/NOTICE` says the EuroCrops licence is
+  "NOT reconciled". `tests/data/tutorial/fields.geojson` is derived from the same source, but its
+  `NOTICE` credits only Copernicus.
+- **Many working habits are practised but not written down.** A sweep of 479 commits found 15 habits
+  missing from the working contract (the user confirmed all 15 as real), and 10 places where the contract and
+  practice disagree. Examples: review fixes in a separate session, the real-run gate, grill-then-ADR.
+
+## 2. Design target
+
+**D0 — Design for the future maintainer, not for the user + Claude.** The *required* process is what one
+human maintainer can sustain **without an agent**. Contributors write **code + tests + a PR template**.
+For a contract change, they also write a few paragraphs in the issue, and the maintainer writes a **short**
+spec. Everything agent-specific is optional *method*, documented in `AGENTS.md`. That covers handoffs, the
+Opus/Sonnet split, notebook run-books, the full spec outline with per-source credit, and grilling.
+(User, 2026-10-05; this supersedes the earlier "you + Claude as maintainer" framing.)
+
+**Audience (D1):** NASA Harvest teammates first (about 1–5, working by hand or through their own agents,
+e.g. Claude Code, Copilot or Cursor). Outsiders are not blocked (the repo is public and MIT), but there is no
+onboarding programme for them: no code of conduct, CLA or triage rota.
+
+## 3. Decisions
+
+### D2 — The contract: four gates every PR passes
+
+| # | Gate | Checked by |
+|---|---|---|
+| 1 | **CI green**: ruff, the fast pytest suite, guard tests, `docs_kwarg_sweep.py` | GitHub Actions |
+| 2 | **Linked issue.** A change to a convention, an on-disk format or the public API also needs a **signed-off short spec** (D5). Bug fixes, refactors, docs, and a new collection that follows `docs/adding-a-source.md` need only the issue | Reviewer |
+| 3 | **Reviewed by someone other than the author.** For the user + Claude, that means a different session from the one that wrote the change. Every finding is either **fixed in the PR or filed as an issue** | Reviewer |
+| 4 | **Real-run evidence** when the change touches real data, the cloud, or pixels: the run's output or a screenshot (e.g. QGIS) pasted into the PR. A contributor without the archive or Azure may ask the reviewer to run it | Reviewer |
+
+Nobody can check *how* the work was produced, so the method is not enforced.
+
+### D3 — Every change reaches `main` through a pull request
+
+- `main` is **protected**: no direct pushes, and the CI check is required before merging. Merges use a
+  **merge commit** (this keeps today's `--no-ff` branch boundary).
+- **No "required approvals" count.** "Pull request authors cannot approve their own pull requests"
+  (GitHub docs), so with that setting a solo maintainer could not merge their own PRs without an admin
+  bypass. Gate 3's review is a **PR comment**, and the **maintainer merges**.
+- This applies to the user + Claude too. Pushing a feature branch and opening a draft PR becomes routine;
+  merging into `main` stays the maintainer's call.
+- Side effect: `origin/main` is always the real `main`. That ends the stale-worktree problem
+  (`EnterWorktree` branches from `origin/main`) and the "N commits unpushed" state.
+
+### D4 — CI, and how dependency drift is caught
+
+- **One job:** `ubuntu-latest`, Python **3.11** (`requires-python >=3.11`). It installs
+  `.[dev,local,s3,notebooks,grid,azure,aml,mpc,titiler,serving]`, i.e. **every extra**, so the
+  ~105 skips that come from missing extras disappear. Steps: `ruff check src/ tests/` → `pytest -q` (the
+  `network` marker stays off) → `scripts/docs_kwarg_sweep.py`.
+- **Triggers:** every PR, and every push to `main`.
+- **No version matrix and no split of the slow suite** for now (the ~170 s tutorial test fits inside a
+  ~6 min budget). Revisit either if CI time hurts.
+- **No lockfile.** CI installs fresh, the same way `pip install` does for a user.
+- **A weekly scheduled run** on `main` (GitHub-hosted) turns an upstream break into an **auto-opened
+  issue** before a contributor's PR hits it. The issue, rather than an email, is the signal because
+  GitHub notifies only "the user who last modified the cron syntax", and that person changes when
+  ownership transfers.
+- When something breaks, add a version range to `pyproject.toml` with a comment saying why. That is the
+  existing rule (`planetary-computer>=1,<2`).
+- Caveat: "In a public repository, scheduled workflows are automatically disabled when no repository
+  activity has occurred in 60 days". The weekly run is an early warning while the project is active,
+  not a guarantee.
+
+### D5 — Specs: numbered by their own tracking issue; a short template
+
+- **Each new spec opens its own tracking issue when drafting starts, and the spec's number is that issue's
+  number.** New issues are #102 and up, so they never overlap specs `00`–`59`, which keep their numbers.
+  **Don't reuse the number of an old problem issue** (#1–#59 already collide with spec numbers): the old
+  issue links to the new spec issue and closes when the spec's work merges.
+- Implementation status lives in the tracking issue: open means not done, closed means done (see D7).
+- **Short template** (required; about 30 minutes of writing for a human):
+
+  ```markdown
+  ---
+  status: current
+  summary: <one paragraph>          # tests/test_docs.py requires status + summary
+  issue: "#NNN"                     # required for specs >= 102 (P1 adds the check)
+  ---
+  # Spec NNN — <title>
+  ## Problem        — what is wrong or missing, measured if possible
+  ## Decision       — D1, D2…; each says what changes
+  ## Prior art      — the standard practice each decision follows, or "searched X, none fit" (D9)
+  ## How to verify  — acceptance checks: tests, plus any real-run evidence (gate 4)
+  ## Out of scope
+  <!-- optional for big specs: Phases, Risks, Alternatives, Sources with per-source credit -->
+  ```
+- After sign-off, change a spec by **amending** it (A*n*, each with its own sign-off), not by rewriting it.
+- Run-book prefixes stay equal to the spec number. Duplicate prefixes are by design: three run-books for
+  spec 31 is not a collision.
+
+### D6 — ADRs: sequential numbers, guarded by a duplicate-number check
+
+- **New ADRs continue the sequential `NNNN-` numbering** (the next one is `0033`), as Nygard's original
+  ADR post prescribes: "numbered sequentially and monotonically. Numbers will not be reused."
+- **A CI check fails on a duplicate ADR or spec number.** Two new files with distinct slugs never
+  conflict in git, so without the check a duplicate number would merge silently. When two PRs pick the
+  same number, the PR that merges second renumbers its file. With 1–5 contributors and about 8 ADRs a
+  month, that is rare.
+- The format is unchanged (Context / Decision / Options rejected / Consequences). An ADR lands **in the same
+  PR as its spec**, is never edited afterwards, and is superseded by a new ADR.
+- **Considered and rejected (Q1, user, 2026-10-05):** `<spec>-<n>` ids such as `0102-1`. They could never
+  collide, but no pre-2022 precedent was found, so the D9 prior-art rule prefers the standard. Renaming
+  `0001`–`0032` was also rejected: it would touch 238 citations in 59 files, and the 32 commit messages
+  that cite ADRs can never be rewritten.
+
+### D7 — Index tables are frozen
+
+- `specs/README.md` gets one last update to spec 59, marked "frozen snapshot; for newer specs see their
+  tracking issue". After that, nobody adds rows.
+- `docs/adr/README.md` keeps its introduction and points readers at the directory listing. ADR slugs are
+  decision sentences, so the listing reads as an index.
+- Each file's `status:` header stays (that half of ADR 0023 still holds). **ADR
+  [0033](../docs/adr/0033-index-tables-freeze-status-lives-in-the-tracking-issue.md), which lands with this spec,
+  supersedes ADR 0023's "regenerated index" half.**
+
+### D8 — Docs: a small living set; everything else is deleted and dispersed
+
+| Bucket | Docs |
+|---|---|
+| **Living** (the maintainer keeps them true, changed in the same PR as the code) | `README.md`, **new** `CONTRIBUTING.md`, `ARCHITECTURE.md`, `CONTEXT.md` (gains the *MGRS tile vs grid cell* terminology rule from the workspace `CLAUDE.md`), `LIMITATIONS.md`, `ROADMAP.md`, `docs/history.md` (kept, rarely touched), `docs/tutorial.md`, `docs/adding-a-source.md`, `docs/howto/`, `docs/reference/` (gains `AZURE_INFRA.md` and a new `test-data.md`), `docs/findings/` (gains `RSLEARN_COMPARISON.md`) |
+| **Optional agent method** | **new** `AGENTS.md` + a one-line `CLAUDE.md` (D9); `runbooks/TEMPLATE.ipynb` and future notebook run-books |
+| **Deleted and dispersed** (in P3, behind the tag `docs-archive-2026`) | see the triage below |
+
+**Triage of the deleted files:**
+
+| File | Its job continues in |
+|---|---|
+| `PROGRESS.md` | Per-work state → **the draft PR's description**. Order of work ("THE ORDER") → **GitHub milestones + a pinned "Order of work" issue**. Session-start checks → `AGENTS.md` (read the open PRs and the pinned issue; the tests must be green; no pinned counts, because CI replaces them). Standing caveats → issues, or `LIMITATIONS.md` when users need to know |
+| `RECIPES.md` | User tasks → `docs/howto/`. Scripts → `scripts/`, each with a docstring saying what it does and how to run it. Maintainer tasks → `CONTRIBUTING.md` "Maintainer tasks" or `AGENTS.md`. One-offs → nowhere (the PR description records them) |
+| `CHANGES.md`, `DROPPED.md` | GitHub release notes from PR titles + labels (D15). DROPPED's "the legacy repo could, fsd can't" lines → `LIMITATIONS.md` (the *why* is already in ADRs). Nobody uses `fetch_satdata`, so there is **no migration guide** (user, 2026-10-05) |
+| `BUGS.md`, `TODO.md` | GitHub issues; file any open bug not yet filed. `CONTRIBUTING.md` says: "`TODO #NN` = issue #NN" |
+| `docs/progress-archive.md` | The tag only |
+| `runbooks/*.md` that are finished records, with their driver scripts | The tag only. Their outcomes are already in specs and `history.md` |
+| run-books still needed to **re-run** something (e.g. `58-redownload-austria-mpc`, needed by #101) | a `docs/howto/` page, or a notebook in `runbooks/` |
+| reusable checks (`runbooks/scripts/docs_kwarg_sweep.py`, and the `85_*` checks if still useful) | `scripts/` |
+
+- **Links:** `tests/test_docs.py` already checks links only in living docs (README, ARCHITECTURE,
+  CONTEXT, ROADMAP). Point-in-time specs and ADRs are exempt by design, so their links to deleted files go dead,
+  which is allowed. Its `_LINKED_DOCS` drops `PROGRESS.md`. `CONTRIBUTING.md` says: "Docs removed in
+  spec 102 are readable at tag `docs-archive-2026`."
+
+### D9 — Agent instructions: three layers, plus rules for all agents
+
+| File | Visibility | Contains |
+|---|---|---|
+| `fsd/AGENTS.md` | public, read by every agent tool | Setup and test commands; code conventions (storage seam, `(data, profile)`, 5-D band contract, nodata = 0, the terminology rule); the four gates; the rules below; the optional agent method (the spec flow, a model-split *suggestion*, handoffs, worktree → PR) |
+| `fsd/CLAUDE.md` | public | One line: `@AGENTS.md` |
+| workspace `CLAUDE.md` | private (the user's) | Only what is about the user's machine and preferences: the read-only legacy repos, `AZURE_INFRA_PRIVATE.md`, personal preferences |
+
+`fsd/CLAUDE.md` is required, not cosmetic. By default Claude Code reads `AGENTS.md` only when no
+`CLAUDE.md` exists "in your working directory or any directory above it". The user's workspace
+`CLAUDE.md` sits above `fsd/`, so without the import their sessions would skip `AGENTS.md`. An import
+"works without adding … a setting" on all versions (Claude Code memory docs).
+
+**Rules for all agents, in `AGENTS.md`:**
+1. **Hand risky runs to a human.** Agents may run fast local checks (pytest, ruff, reading files).
+   Anything that touches the network, the cloud or credentials, or runs longer than a few minutes, is
+   handed to the human, who pastes back the result. The stricter "never background a script, never poll
+   logs" rule and the notebook run-book format stay in the user's private layer.
+2. **Prior-art check** (user, 2026-10-05). Before proposing a mechanism (a design, process or test pattern),
+   say whether it is homemade. If it is, look for the established practice documented **before
+   2022-11-30** and prefer it. Cite it so a reviewer can verify it (a link, plus what it contributed), or
+   say what was searched and that nothing fit. **Never invent a precedent to satisfy this rule.** The
+   short spec template has a `Prior art` heading, and the review checklist asks about it.
+3. **Privacy:** describe an identifier, never spell it out (GUIDs, resource names, personal paths).
+
+### D10 — Knowledge outside the repo moves in
+
+Project lessons that live only in the user's `~/.claude` memory move into the repo. Personal notes stay private.
+
+| Kind | Example memory notes | Destination |
+|---|---|---|
+| Review lessons | real-run-beats-review, verify-the-primitive-a-spec-cites, test-the-serialization-boundary, fsd-addressing-granularity, docs-call-sites-rot-silently | `CONTRIBUTING.md` **review checklist**: one line each, ≤ 10 lines, each pointing to its incident |
+| Design rationale | fsd-datetime-tz, fsd-metadata-pickle-npy, fsd-geospatial-nitpicks | a "why" line in `ARCHITECTURE.md`, or an ADR if it is a real decision |
+| Test-data facts | fsd-austria-archive, dont-trust-a-geometry-filename | `docs/reference/test-data.md` |
+| Unfiled bugs | dropping-a-label-polygon-is-a-noop | a GitHub issue |
+| Collection switching | switching-a-collection-is-not-a-rename | `docs/adding-a-source.md` |
+
+### D11 — On-disk format versions: golden files
+
+`FSD_DECLARATION_VERSION` (the collection declaration, stamped into every tile catalog's Parquet footer
+under `fsd:declaration`) and `BUNDLE_VERSION` (`bundle.json` in every model bundle) each get **golden
+files**: `tests/data/formats/declaration.v<N>.json` and `bundle.v<N>.json`.
+
+- **Test A:** write a fixed example with today's code and compare it to the golden file for the current
+  version. If the format changed without a bump, the test fails and says "bump the version and add
+  `…v<N+1>.json`". If the version was bumped but its file doesn't exist yet, the test fails too.
+- **Test B:** every version in `SUPPORTED_BUNDLE_VERSIONS` (and the declaration's equivalent) still
+  loads from its golden file. That gives a backward-compatibility check; today only one test fakes a v1 bundle
+  (`tests/test_bundle_code.py:344`).
+- **Two branches both bumping to v3** each add `…v3.json` with different contents, which git reports as a real
+  conflict.
+- A homemade "the history comment must match the constant" test was considered and **rejected**: it
+  misses the likeliest bug (the format changed and nobody bumped the version).
+- The `pyproject.toml` version: PRs never touch it, and the maintainer bumps it only when cutting a release (D15).
+
+### D12 — Shared cloud state
+
+1. **Azure is not required to contribute.** For changes that touch the cloud, the maintainer runs gate 4.
+   (CI on fork PRs gets no secrets: "With the exception of `GITHUB_TOKEN`, secrets are not passed to the
+   runner when a workflow is triggered from a forked repository.")
+2. Teammates with `rise` access work in a **personal namespace**: blob root `<user>/…`, and aliases
+   `dev-<user>`.
+3. **Shared aliases (`current`, `champion`, `demo-*`) move only from `main`, and only the maintainer moves them.**
+4. **Code change:** `fsd.aml.ensure_environment`'s default changes from `alias="current"` to
+   **`alias=None`**, so a run moves a pointer only when explicitly asked. This is a behavior change, labelled `breaking` in the release notes.
+
+### D13 — The owner's own paths
+
+| Kind | Rule |
+|---|---|
+| **Runnable** files (`benchmarks/`, `demos/`, `notebooks/`) | Paths relative to the repo root (`Path(__file__).parents[1] / …`). Blob roots come from a Settings cell set to the placeholder `<your-user>`, plus `assert "<" not in AZ_ROOT` so a forgotten placeholder fails immediately |
+| **Point-in-time records** (old run-books, archives) | Left as they are: they truthfully record the run |
+| **Guard** | The identifier guard in `tests/test_notebooks.py` extends to `benchmarks/`, `demos/`, `src/` and the living docs. It fails on an absolute home path or a personal blob prefix |
+| `pyproject` `authors` | Kept; a `maintainers` field is added at handover |
+
+### D14 — Licensing
+
+- **Code is MIT. Data derived from EuroCrops is CC BY 4.0.** Each data folder's `NOTICE` says so and gives
+  the suggested citation: Schneider, M., Chan, A., & Körner, M. (2023). *EuroCrops: A Pan-European crop
+  dataset.* Zenodo. doi:10.5281/zenodo.7851838.
+- `notebooks/shapefiles/NOTICE` drops "NOT reconciled". `tests/data/tutorial/NOTICE` adds the EuroCrops
+  credit next to the Copernicus line.
+- **No CLA, and no DCO sign-off.** GitHub's terms already apply "inbound=outbound": "Whenever you add
+  Content to a repository containing notice of a license, you license that Content under the same terms"
+  (GitHub ToS §D.6). `CONTRIBUTING.md` says so in one line. A DCO can be added later if the org requires it.
+- The copyright line is kept. At handover it becomes "Copyright (c) 2026 Nikhil Sasi Rajan and fsd contributors".
+
+### D15 — PR template, labels, releases
+
+- `.github/pull_request_template.md` has: `Closes #NN` · **What changed** (the title becomes the release-note line) ·
+  **How verified** (tests; real-run output or a screenshot when data/cloud/pixels are touched) · ☐ docs updated if
+  user-facing behaviour changed.
+- **Labels:** `breaking`, `feature`, `fix`, `docs`, `internal`. **The maintainer applies them at merge.**
+- `.github/release.yml` groups merged PRs by label, and GitHub generates the release notes.
+- **Releases:** the maintainer tags `v0.y.z` when there is something worth shipping. `breaking` bumps `y`;
+  everything else bumps `z` ("Major version zero (0.y.z) is for initial development. Anything MAY change at
+  any time", SemVer §4). The first release is **`v0.1.0`, after this spec lands**.
+
+### D16 — Where each confirmed habit ends up
+
+| Habit (from the 479-commit sweep) | Becomes |
+|---|---|
+| 1 separate-session review; findings fixed or filed · 2 real-run gate · 5 issue-only small work | **Contract**: gates 3, 4, 2 |
+| 6 ADRs immutable, same PR as the spec · 7 spec outline + amendments | **Contract**: the D5/D6 templates, "amend, don't rewrite" |
+| 8 point-in-time vs living docs, `status:` headers | **Contract**: kept, enforced by `test_docs.py` |
+| 14 no back-compat shims for the archive layout; old artifacts raise with the fix named | **Contract**: a code convention in `AGENTS.md` / `CONTRIBUTING.md` (format versions keep their supported lists, D11) |
+| 15 commit-subject style | **Contract, PR titles only**: the PR title is the release-note line |
+| 3 check a spec against fsd's own code · 13 turn a lesson into an automated check | **Review checklist** (D10) |
+| 4 grill before a spec · 9 worktree per change · 12 manual identifier sweep | **Optional agent method** (`AGENTS.md`); CI's guard (D13) is the contract part of 12 |
+| 10 pinned expected counts · 11 THE ORDER | **Replaced**: CI green; milestones + a pinned issue |
+| "(user, date)" attribution tags | Optional |
+
+### D17 — The fresh-clone dry run
+
+- **Who:** (b) **a fresh agent session that sees only the cloned repo**, with none of the user's memory and no
+  workspace `CLAUDE.md`. (a) A teammate without an agent is **deferred**: none is available now (user,
+  2026-10-05). It runs when someone joins.
+- **The task:** a real `good first issue`, taken to a PR.
+- **PASS:** green CI and all four gates met, with **zero questions to the maintainer that the docs should have
+  answered**. Each question asked becomes a doc fix, and that step is re-tried.
+- **When:** once in P4, before this spec closes, and again at each maintainer handover (D18).
+
+### D18 — Handover, rename, transfer
+
+`CONTRIBUTING.md` gains a "Maintainer handover" checklist:
+1. **Transfer the repo** to [`nasaharvest`](https://github.com/nasaharvest) in **P5, after P4** (user,
+   2026-10-05). "All links to the previous repository location are automatically redirected", and issues,
+   PRs, the wiki, stars and watchers move with the repo. The transfer needs "permission to create repositories
+   in the receiving organization", and the redirect is lost if a new repo is ever created at the old name.
+2. Branch protection and CI move with the repo. The weekly failure goes to an auto-opened issue (D4).
+3. The successor gets their own `rise` access through the platform admin. Shared aliases and blob roots
+   are documented in `docs/reference/AZURE_INFRA.md`.
+4. Private values (resource group, workspace names) are handed over **privately** and never committed.
+5. Run the D17 dry run with the successor as the reader.
+
+**Rename.** "fsd" (fetch-satdata) undersells a project that runs from imagery through datacubes, training data and a
+model contract to inference at scale and served maps. **The new name is chosen before P5** (user: "decide later").
+Shortlist, with PyPI checked on 2026-10-05: `sheaf` (install as `sheaf-eo`, because PyPI's `sheaf` is an
+empty 0.0.0 placeholder; a sheaf is a harvest bundle, and in mathematics a structure that glues per-cell data
+into one whole), `geosheaf`, `harvestac`, `cubecast`. Before P5, check GitHub and the remote-sensing
+literature for clashes. The rename is one mechanical PR (`src/fsd` → `src/<name>`, the CLI, the docs), with
+no back-compat shim (habit 14; SemVer §4).
+
+## 4. Phases
+
+| Phase | What | Who |
+|---|---|---|
+| **P0 — switch-over** | ~~Push the 8 local commits on `main`~~ · ~~Open tracking issue~~ (both done 2026-10-05: #102) | user |
+| **Spec PR** | This spec + ADR 0033 (D7) merge as the first PR | Claude drafts; user signs off and merges |
+| **P1 — scaffolding** | `.github/workflows/ci.yml` (+ the weekly run with its auto-issue) · `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` (gates, review checklist, maintainer tasks, handover, "TODO #NN = issue #NN") · PR template, `release.yml`, labels · spec/ADR templates · the duplicate-number check · the `issue:` header check for specs ≥ 102 · `docs_kwarg_sweep.py` → `scripts/`. **Then the user enables branch protection** with the CI check required | implementation session; Opus review; user merges |
+| **P2 — code guards** | Golden files (D11) · `alias=None` (D12) · path fixes + the identifier guard (D13) · NOTICE fixes (D14) | same |
+| **P3 — doc migration** | Tag `docs-archive-2026` · delete and disperse (D8) · knowledge moves in (D10) · freeze the indexes (D7) · `CONTEXT.md` terminology · **the user applies the workspace `CLAUDE.md`/memory rewrite (§8)** | same |
+| **P4 — dry run** | D17 (b), then doc fixes; this spec's issue closes; release `v0.1.0` | fresh agent session; user watches |
+| **P5 — rename + transfer** | Choose the name → rename PR → transfer to `nasaharvest` (D18) | user, plus an implementation session |
+
+CI must exist before branch protection can require it. The guards land before the docs move, so the
+migration PRs get checked by them.
+
+## 5. How to verify (acceptance criteria)
+
+| AC | Phase | Check |
+|---|---|---|
+| AC1 | P1 | A PR from a branch triggers `ci.yml`; with every extra installed, the pytest skips not caused by `network` are ≤ 5 (each one named in the PR) |
+| AC2 | P1 | Adding a second `specs/59-*.md` or a second `docs/adr/0033-*.md` on a branch makes CI fail with a message naming both files; a spec numbered ≥ 102 with no `issue:` header fails `test_docs.py` |
+| AC3 | P1 | `ci.yml` has a weekly `schedule:` trigger whose failure step opens an issue (checked by reading the workflow; the first real fire is noted in the issue) |
+| AC4 | P1 | `AGENTS.md` exists, `CLAUDE.md` is exactly `@AGENTS.md`, and a fresh Claude Code session in `fsd/` with no workspace `CLAUDE.md` above it shows that `AGENTS.md` was loaded |
+| AC5 | P1 | `CONTRIBUTING.md` fits on one screen for the contributor part (≤ ~80 lines before the "Maintainer" sections) and states the four gates, inbound=outbound, and "TODO #NN = issue #NN" |
+| AC6 | P1 | After the user enables protection: a direct push to `main` is rejected, and a PR with red CI can't be merged |
+| AC7 | P2 | Changing one field written into `bundle.json` without bumping makes Test A fail with the "bump + add v3" message; bumping without adding the golden file fails too; v1 and v2 golden files load |
+| AC8 | P2 | `ensure_environment(...)` without `alias=` leaves `_aliases.json` untouched (unit test with the existing fakes) |
+| AC9 | P2 | The identifier guard fails on a planted absolute home path in `benchmarks/` and passes on the cleaned tree |
+| AC10 | P2 | Both `NOTICE` files name CC BY 4.0 and the EuroCrops citation |
+| AC11 | P3 | Tag `docs-archive-2026` exists and points at the last commit before deletion; every file listed in D8 as deleted is gone on `main`, and the living docs link to none of them (`test_docs.py` green) |
+| AC12 | P3 | `specs/README.md` lists 00–59 and says "frozen"; `docs/adr/README.md` points at the listing; ADR 0033 (landed with this spec) is the only record superseding 0023's index half, and 0023 itself is unedited |
+| AC13 | P3 | Every memory note D10 names has its destination line or issue, and the issue for the label-polygon bug exists |
+| AC14 | P4 | The D17 (b) dry run: the PR reaches green CI; the questions asked and the doc fixes made are listed in #102 before it closes |
+| AC15 | P4 | Release `v0.1.0` exists with auto-generated notes grouped by label |
+
+## 6. Out of scope
+
+- The teammate dry run (D17 a) until someone is available. Choosing the new name (deferred to before P5).
+- A code of conduct, a CLA, a security policy, issue triage rotas (D1).
+- A Python version matrix, a lockfile, Dependabot (D4).
+- Renaming ADRs `0001`–`0032` (D6). Regenerating any index (D7).
+- Spec 59 open item **B** (`data/imagery` vs `tests/outputs/imagery` in the docs) and #101: next in the queue,
+  and the first work done under the new process.
+
+## 7. Prior art
+
+Each decision, labelled **standard** or **homemade**:
+
+| Decision | Label | Precedent |
+|---|---|---|
+| D3 PRs + protected `main`, no self-approval | standard | GitHub branch protection; "Pull request authors cannot approve their own pull requests" |
+| D4 weekly run that opens an issue | standard | xarray's `upstream-dev-ci.yaml`: a scheduled run against upstream versions that opens an issue via `scientific-python/issue-from-pytest-log-action` |
+| D5 spec number = tracking issue | standard | Kubernetes KEPs: "KEPs are now prefixed with their associated tracking issue number" |
+| D5 short template | standard | A trimmed PEP 1 shape (Motivation / Specification / Rationale / Rejected Ideas) |
+| D6 sequential ADRs + duplicate check | standard | Nygard (2011): "numbered sequentially and monotonically. Numbers will not be reused." The CI check enforces "not reused" across branches. The `<spec>-<n>` alternative was homemade (no pre-2022 precedent found) and was dropped at sign-off (Q1) |
+| D7 status in the tracking issue | standard | KEP: the tracking issue is "where the current state of the KEP is being updated" |
+| D7 no index, the directory is the index | standard-ish | Nygard keeps ADRs as numbered files in one directory and describes no index |
+| D8 PR titles → release notes | standard | GitHub automatically generated release notes + `.github/release.yml` |
+| D8 one archive tag for deleted docs | homemade (low risk) | Git tags are the standard way to name a point in history; using one as a doc archive is our own use |
+| D9 `AGENTS.md` | standard | agents.md: "a dedicated, predictable place to provide the context and instructions to help AI coding agents" (format post-2022; there is no pre-2022 equivalent for agent instructions, the nearest being `CONTRIBUTING.md`) |
+| D11 golden files | standard | Golden-file tests (Go `testdata/*.golden` with an `-update` flag; Hashimoto, "Advanced Testing with Go", GopherCon 2017) |
+| D12 promote shared pointers from `main` only | standard | Kubernetes: "avoid using the `:latest` tag … harder to track which version … more difficult to roll back"; pin a version or digest, and move mutable pointers deliberately |
+| D14 mixed code/data licences per folder | standard | REUSE (FSFE): per-file `.license` sidecars or `REUSE.toml`; GitHub ToS §D.6 inbound=outbound |
+| D15 0.y.z releases | standard | SemVer §4 |
+| D17 dry run | standard | The Joel Test #12, "hallway usability testing" (2000) |
+| D18 transfer | standard | GitHub repository transfer (redirects; issues and PRs move) |
+
+**Alternatives rejected, with their precedents:** Rust RFC rename-to-PR-number (`0000-` placeholder renamed
+once the PR opens): uniqueness as good as D5, but a rename step on every spec. towncrier news fragments
+(`<issue>.<type>` files, which avoid changelog conflicts): GitHub release notes need no file at all. PEP-style
+editor-assigned numbers: they need an editor.
+
+## 8. Contract changes outside the repo (the user applies these)
+
+| Where | Change |
+|---|---|
+| workspace `CLAUDE.md` "Git & branches → land finished worktrees" | → "open a PR; the maintainer merges; prune the worktree after the merge". Pushing a feature branch + a draft PR becomes routine |
+| workspace `CLAUDE.md` "Commit only when asked / push only when asked" | Commits on a feature branch + push + draft PR are routine; merging into `main` stays the user's |
+| workspace `CLAUDE.md` top line "Read `fsd/PROGRESS.md` first" + the handoff protocol's "flush to PROGRESS.md" | → "read `gh pr list` + the pinned Order-of-work issue"; handoff state goes in the draft PR description |
+| workspace `CLAUDE.md` "Keep the living docs current: DROPPED/CHANGES/RECIPES" | → the D8 living set; no RECIPES rule |
+| workspace `CLAUDE.md` web-search rule | The standing permission also covers prior-art searches (D9 rule 2) |
+| workspace `CLAUDE.md` stale lines | "specs 00..17", "Azure Batch runner" (ADR 0005 says AML), the test-archive numbers, `.[dev]` → `.[dev,local]`, the test ROIs, `tests/manual/` → `runbooks/`, the obsolete notebook-exclusion rule, the commit trailer naming a fixed model version |
+| workspace `CLAUDE.md` content that moves into the repo | Terminology → `CONTEXT.md`; code conventions → `AGENTS.md`; "Claude never runs pipelines" → `AGENTS.md` rule 1 (relaxed), with the strict parts kept private |
+| memory | Rewrite `worktree-merge-prune-practice` (PR flow) and `fsd-status` (no PROGRESS hook); retire the notes D10 moves into the repo, leaving a pointer |
+
+## 9. Questions at sign-off — ALL RESOLVED (user, 2026-10-05)
+
+- **Q1 — D6 was homemade.** → **Switch to sequential numbers plus the duplicate-number CI check.** D6 was rewritten
+  to match.
+- **Q2 — the `issue:` header key.** → **Yes, it is required for specs ≥ 102.** P1 adds the check to
+  `test_docs.py` (AC2).
+
+## 10. Sources (per-source credit)
+
+- **GitHub Docs, "Events that trigger workflows" (`schedule`)**: scheduled runs use "the latest commit on the
+  default branch"; notifications go to "the user who last modified the cron syntax" (why D4 alerts through an
+  issue); disabled after 60 days without activity in public repos (D4's caveat).
+  <https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows>
+- **GitHub Docs, "Approving a pull request with required reviews"**: "Pull request authors cannot approve their
+  own pull requests" (why D3 sets no required-approval count).
+  <https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/approving-a-pull-request-with-required-reviews>
+- **GitHub Docs, "Automatically generated release notes"**: `.github/release.yml` with `changelog.categories[*].labels`
+  and `exclude` (D8, D15). <https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes>
+- **GitHub Docs, "Using secrets in GitHub Actions"**: fork PRs get no secrets except `GITHUB_TOKEN` (D12.1).
+  <https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions>
+- **GitHub Docs, "Transferring a repository"**: redirects; issues, PRs, wiki, stars and watchers move; requires
+  repo-create permission in the org; the redirect is lost if the old name is reused (D18).
+  <https://docs.github.com/en/repositories/creating-and-managing-repositories/transferring-a-repository>
+- **GitHub Terms of Service §D.6**: inbound=outbound (D14, no CLA/DCO).
+  <https://docs.github.com/en/site-policy/github-terms/github-terms-of-service>
+- **Kubernetes Enhancements, `keps/README.md`**: KEP number = tracking issue, and the issue is where the current
+  state lives (D5, D7). <https://github.com/kubernetes/enhancements/blob/master/keps/README.md>
+- **Rust RFCs README**: the `0000-` placeholder renamed to the PR number (a rejected alternative to D5).
+  <https://github.com/rust-lang/rfcs/blob/master/README.md>
+- **PEP 1**: the PEP section shape the short template trims (D5); editor-assigned numbers (rejected).
+  <https://peps.python.org/pep-0001/>
+- **Michael Nygard, "Documenting Architecture Decisions" (2011-11-15)**: sequential, monotonic, never-reused
+  numbers; superseded records are kept and marked (D6's numbering after Q1; immutability in D6; ADR 0033 supersedes 0023 in part).
+  <https://www.cognitect.com/blog/2011/11/15/documenting-architecture-decisions>
+- **xarray `upstream-dev-ci.yaml`**: a scheduled upstream-dependency run that opens an issue on failure (D4).
+  <https://github.com/pydata/xarray/blob/main/.github/workflows/upstream-dev-ci.yaml>
+- **towncrier tutorial**: per-change fragment files named by issue + type avoid changelog conflicts (a rejected
+  alternative to D8's release notes). <https://towncrier.readthedocs.io/en/stable/tutorial.html>
+- **agents.md**: AGENTS.md at the repo root; the nearest file wins; read by Codex, Jules, Copilot, Cursor and
+  others; suggested contents (D9). <https://agents.md/>
+- **Claude Code docs, "How Claude remembers your project"**: AGENTS.md is read only when no CLAUDE.md
+  exists in or above the working directory; a CLAUDE.md that imports `@AGENTS.md` includes it (why D9's
+  `fsd/CLAUDE.md` is required). <https://code.claude.com/docs/en/memory>
+- **Golden files: Mitchell Hashimoto, "Advanced Testing with Go" (GopherCon 2017)**, as summarised in
+  [Go Time #83](https://changelog.com/gotime/83) and
+  [Eli Bendersky, "File-driven testing in Go"](https://eli.thegreenplace.net/2022/file-driven-testing-in-go/):
+  expected output stored in a file, compared on every run, regenerated deliberately (D11).
+- **Kubernetes docs, "Images"**: avoid `:latest` in production; pin a version or digest (D12.3).
+  <https://kubernetes.io/docs/concepts/containers/images/>
+- **REUSE FAQ (FSFE)**: `.license` sidecars and `REUSE.toml` for files that can't carry headers (D14).
+  <https://reuse.software/faq/>
+- **SemVer 2.0.0 §4**: 0.y.z means anything may change (D15, D18's no-shim rename). <https://semver.org/>
+- **Joel Spolsky, "The Joel Test" (2000-08-09), #12 hallway usability testing**: the shape of D17.
+  <https://www.joelonsoftware.com/2000/08/09/the-joel-test-12-steps-to-better-code/>
+- **EuroCrops, Zenodo record 7851838**: CC BY 4.0 + the suggested citation (D14).
+  <https://zenodo.org/records/7851838>; **EuroCrops paper (arXiv 2302.10202)**: the Austrian AMA source data is
+  CC BY 4.0. <https://arxiv.org/pdf/2302.10202>
+- **In-repo evidence**: the 479-commit habit sweep (2026-10-03, Explore agent) and the counts in §1, all
+  re-measurable with `git log --since=2026-06-01 --oneline -- <file> | wc -l`.
