@@ -1,0 +1,35 @@
+{
+  "fsd_declaration_version": 2,
+  "reference_band": "B08",
+  "native_grid": true,
+  "mask_spec": {
+    "band": "SCL",
+    "mask_type": "bitmask",
+    "classes": [
+      3,
+      8
+    ],
+    "bits": [
+      1,
+      2
+    ]
+  },
+  "mask_keep": true,
+  "nodata": 7,
+  "mosaic_method": "mean",
+  "scale": 0.5,
+  "radiometry_bands": [
+    "B04",
+    "B08"
+  ],
+  "band_aliases": {
+    "red": "B04",
+    "nir": "B08"
+  },
+  "requires_subscription_key": true,
+  "supports_cloud_cover": true,
+  "mosaic_partition": [
+    "sat:orbit_state"
+  ],
+  "partition_policy": "auto"
+}
