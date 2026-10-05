@@ -475,3 +475,70 @@ editor-assigned numbers: they need an editor.
   CC BY 4.0. <https://arxiv.org/pdf/2302.10202>
 - **In-repo evidence**: the 479-commit habit sweep (2026-10-03, Explore agent) and the counts in §1, all
   re-measurable with `git log --since=2026-06-01 --oneline -- <file> | wc -l`.
+
+## Amendment A1 — gate 3 by a reviewer subagent (2026-10-05)
+
+**Status:** requested by the user 2026-10-05 ("set up option 1": a Sonnet implementation session gets an
+Opus review without the user passing messages between sessions). Signed off when the user merges the PR
+that adds it.
+
+**Problem.** D2 gate 3 says that for the user + Claude, the reviewer is "a different session from the one
+that wrote the change". With the model split (implement on a cheaper model, review on a stronger one), that
+means the user opens a second session, points it at the PR, and carries the result back. For every PR,
+the user is the message bus between two agents.
+
+**Decision.**
+- **A1.1** A **reviewer subagent** that the implementing session spawns also satisfies gate 3, if it meets
+  all of these: its definition is the committed `.claude/agents/pr-reviewer.md`; it runs on a stronger model
+  (`model: opus`, `effort: high`); it starts with a fresh context and gets only the PR number; it has no edit
+  tools (`disallowedTools: Edit, Write, NotebookEdit, Agent`); and it posts its **own** PR comment, which is
+  the review of record. D2's text is not rewritten (D5: amend, don't rewrite). Read its gate 3 as "a
+  different session, or the `pr-reviewer` subagent (A1)".
+- **A1.2** The flow lives in `AGENTS.md` ("Review without a relay"): open the PR, spawn `pr-reviewer`, fix or
+  file each finding, push, spawn it again to check the fixes. **At most two rounds.** If a **fix in PR**
+  finding is still open after the second round, the PR goes to the maintainer, so two agents cannot
+  loop forever.
+- **A1.3** A separate session started by the user still counts as before. The subagent is an option, not a
+  requirement: D2's "the method is not enforced" stands.
+
+**Prior art (D9).** This is homemade wiring around an established idea. **IEEE Std 1012** (Verification
+and Validation; the 2012 and 2016 editions both predate 2022-11-30) defines *independent* V&V by three kinds
+of independence: technical, managerial and financial. Measured against it:
+- **Technical: partial.** The reviewer reads the diff itself, with fresh context and a different model. But
+  it is the same model family as the author, so errors can be correlated.
+- **Managerial: partial.** The author does not choose what gets checked: the review brief is fixed in the
+  committed agent file, and the reviewer gets only a PR number. The author does start the review, though.
+- **Financial: not applicable.**
+
+So the subagent is a *peer* review in the D2 sense, not IV&V. That is all D2 ever asked for.
+Gate 4 (a real run) and the maintainer's merge stay human, and they cover what correlated model errors
+miss (CONTRIBUTING checklist line 1: "Real run, not just green tests"). What was searched: only the
+definition of independent review (IEEE 1012, above). I did not search for, and do not claim, a pre-2022 rule
+that an automated reviewer may stand in for the second person. That is why A1.3 keeps the human-session
+path.
+
+**How to verify.** The next PR whose implementing session uses the flow has a `pr-reviewer` comment
+headed "Gate-3 review (pr-reviewer subagent, fresh context)". The maintainer sees findings fixed or filed
+without having passed any message between sessions. `git check-ignore .claude/agents/pr-reviewer.md`
+prints nothing (the file is tracked) and `.claude/worktrees/` is still ignored.
+
+**Out of scope.** A CI-run reviewer (`claude-code-action` on PR open) and a hook that launches a headless
+review. Both were weighed on 2026-10-05: the first needs an API key in repo secrets and per-run billing,
+and the second backgrounds a process, which `AGENTS.md` rule 1 forbids.
+
+**Outside the repo (the user applies this, as in §8).** Workspace `CLAUDE.md`, "four gates" bullet: "reviewed
+by a non-author session" → "reviewed by a non-author session or the `pr-reviewer` subagent (spec 102 A1)".
+"Model split & effort": "switch back to Opus for review" → "the Sonnet session spawns `pr-reviewer` (Opus)
+for review".
+
+**Sources (per-source credit).**
+- **Claude Code docs, "Subagents"** (<https://code.claude.com/docs/en/sub-agents>): the frontmatter fields
+  A1.1 uses (`model` accepts the `opus` alias; `effort` overrides the session level; `disallowedTools`
+  removes tools; omitting `Agent` stops a subagent from spawning more). Also: project subagents in
+  `.claude/agents/` are meant to be checked into version control, which is why `.gitignore` now tracks that
+  directory.
+- **NASA, "IV&V Overview"** (<https://www.nasa.gov/ivv-overview/>), restating IEEE Std 1012
+  (<https://standards.ieee.org/ieee/1012/4021/>, paywalled): "IEEE defines independence in IV&V as three
+  parameters: technical independence, managerial independence, and financial independence", plus each
+  one's meaning (managerial: the IV&V effort sits in an organization separate from the implementers). The
+  partial/partial/n-a mapping onto a subagent reviewer is this amendment's own judgement, not the source's.
