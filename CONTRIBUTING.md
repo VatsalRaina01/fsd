@@ -40,7 +40,7 @@ The PR title becomes the release-note line. The maintainer labels and merges (me
 Each line points at the incident that taught it.
 
 - [ ] **Real run, not just green tests.** Synthetic fixtures encode today's assumptions (spec 50: a real run
-  found stale `input.csv` rows adopted and a ~3600-call serial blob sweep after two clean reviews).
+  found stale `input.csv` rows adopted and a ~3600-call serial blob sweep after two review rounds).
 - [ ] **Verify the primitive a spec cites.** A docstring or our own issue is not evidence (#74: "no `.part`
   here" missed that `fs.transfer` was already atomic).
 - [ ] **Test the serialization boundary.** Shard CSVs and `input.csv` retype values (`"05.00"` becomes `5.0`);
@@ -65,7 +65,8 @@ Each line points at the incident that taught it.
   with a comment saying why. GitHub disables scheduled runs after 60 days without repository activity.
 - **Shared cloud aliases** (`current`, `champion`, `demo-*`) move only from `main`, and only the maintainer
   moves them. Teammates with Azure access use a personal namespace (`dev-<user>`).
-- **Orders of work:** milestones plus one pinned "Order of work" issue replace the old progress log.
+- **Orders of work:** milestones plus one pinned "Order of work" issue replace the old progress log
+  (create and pin it in spec 102 P3; until then the open spec tracking issue holds the order).
 
 ## Maintainer handover
 

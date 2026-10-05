@@ -87,5 +87,6 @@ findings). The PR title becomes the release-note line.
 - **Run-books.** A credentialed or visual check is handed over as a notebook (`runbooks/TEMPLATE.ipynb`):
   Markdown says what each step does and what PASS means, plain `assert`s, no environment variables, a
   Settings cell for every input, outputs cleared before commit (`tests/test_notebooks.py` enforces it).
-- **Session start.** Read `gh pr list` (work in flight) and the pinned "Order of work" issue. The tests
-  must be green before you start; do not pin expected test counts anywhere.
+- **Session start.** Read `gh pr list` (work in flight; each PR description holds its state), then the
+  open spec tracking issue (or the pinned "Order of work" issue, once one exists), then `gh issue list`.
+  The tests must be green before you start; do not pin expected test counts anywhere.

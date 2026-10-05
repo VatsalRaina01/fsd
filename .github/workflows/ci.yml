@@ -44,7 +44,13 @@ jobs:
         run: python scripts/docs_kwarg_sweep.py
       - name: Open an issue when the weekly run fails
         if: failure() && github.event_name == 'schedule'
-        # Precedent: xarray's upstream-dev-ci.yaml (spec 102 section 7).
-        uses: scientific-python/issue-from-pytest-log-action@v1
+        # Precedent: xarray's upstream-dev-ci.yaml (spec 102 section 7), which pins this same SHA.
+        # Its `v1` ref is a branch that lags the latest tag, so pin the release commit instead.
+        # A missing log (lint or install failed first) still opens an issue, without test details.
+        uses: scientific-python/issue-from-pytest-log-action@35b4e0a9e06f8e7e261778289cf4b968b722662d # v1.6.2
         with:
           log-path: pytest-log.jsonl
+          issue-title: "Weekly CI run failed"
+          # The action's default label `CI` does not exist here, and `gh issue create` fails on
+          # an unknown label. `bug` is a GitHub default label.
+          issue-label: bug
