@@ -19,7 +19,7 @@ python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev,l
    short spec (`specs/TEMPLATE.md`; its number is its tracking issue's number). Bug fixes, refactors, docs and
    a new collection that follows `docs/adding-a-source.md` need only the issue.
 3. **Reviewed by someone other than the author**, as a PR comment. Every finding is fixed in the PR or
-   filed as an issue. An agent author may use the `pr-reviewer` subagent (`AGENTS.md`), which posts its own comment.
+   filed as an issue.
 4. **Real-run evidence** when you touch real data, the cloud or pixels: paste the output or a screenshot
    (QGIS). No archive or Azure access? Say so; the reviewer runs it.
 

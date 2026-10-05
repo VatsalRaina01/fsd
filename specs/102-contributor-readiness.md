@@ -499,7 +499,9 @@ the user is the message bus between two agents.
   finding is still open after the second round, the PR goes to the maintainer, so two agents cannot
   loop forever.
 - **A1.3** A separate session started by the user still counts as before. The subagent is an option, not a
-  requirement: D2's "the method is not enforced" stands.
+  requirement: D2's "the method is not enforced" stands. It is Claude Code-specific, so it lives only in
+  `AGENTS.md`'s optional method, labelled as such. `CONTRIBUTING.md` (the human-facing gates) does not
+  mention it, and a contributor working by hand or with another agent tool is unaffected.
 
 **Prior art (D9).** This is homemade wiring around an established idea. **IEEE Std 1012** (Verification
 and Validation; the 2012 and 2016 editions both predate 2022-11-30) defines *independent* V&V by three kinds
