@@ -90,12 +90,21 @@ def test_d4_header_parses(path: Path):
         )
 
 
-@pytest.mark.parametrize("path", _d4_targets(), ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def _superseded_targets() -> list[Path]:
+    """Only the docs whose header names a `superseded_by`. Filtered at collection, not skipped
+    per doc, so CI's `-rs` list stays short enough to read (spec 102 AC1). A malformed header
+    is `test_d4_header_parses`'s job, so this filter is a lenient text match."""
+    return [
+        p for p in _d4_targets()
+        if re.search(r"^superseded_by:", p.read_text().split("\n---\n", 1)[0], re.MULTILINE)
+    ]
+
+
+@pytest.mark.parametrize(
+    "path", _superseded_targets(), ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
 def test_d4_superseded_by_target_exists(path: Path):
-    fields = _parse_header(path)
-    target = fields.get("superseded_by")
-    if target is None:
-        pytest.skip("not superseded")
+    target = _parse_header(path)["superseded_by"]
 
     for base_dir in (REPO_ROOT / "specs", REPO_ROOT / "runbooks"):
         matches = list(base_dir.glob(f"{target}-*.md")) + list(base_dir.glob(f"{target}.md"))
@@ -410,3 +419,100 @@ def test_dash_c_snippets_have_no_unescaped_double_quotes(path: Path):
         f"{path.name}: unescaped \" inside a `-c \"...\"` body would end the shell "
         "string early; escape it as \\\" :\n  " + "\n  ".join(offenders)
     )
+
+
+# --------------------------------------------------------------------------
+# Spec 102 D5/D6: numbering guards. Two new files with distinct slugs never conflict
+# in git, so a duplicate spec/ADR number would merge silently. These fail CI instead.
+# Run-books are out of scope: their prefix is the spec number, so duplicates are by design.
+# --------------------------------------------------------------------------
+
+_SPEC_NUM_RE = re.compile(r"^(\d+[a-z]?)-")
+_ADR_NUM_RE = re.compile(r"^(\d+)-")
+# Already on `main` when the guard landed; allow-listed explicitly, and only this pair.
+_KNOWN_DUPLICATE_SPEC_NUMBERS = {"18"}
+
+
+def _number_key(raw: str) -> str:
+    """`05` and `5` (or `0033` and `33`) are one number; `25b` stays distinct from `25`."""
+    return raw.lstrip("0") or "0"
+
+
+def _duplicate_numbers(paths: list[Path], number_re: re.Pattern, allowed: set[str] = frozenset()):
+    """`{number: [files]}` for every number shared by more than one of `paths`."""
+    by_number: dict[str, list[Path]] = {}
+    for p in paths:
+        m = number_re.match(p.name)
+        if m and _number_key(m.group(1)) not in allowed:
+            by_number.setdefault(_number_key(m.group(1)), []).append(p)
+    return {n: ps for n, ps in by_number.items() if len(ps) > 1}
+
+
+def _duplicate_message(dups: dict[str, list[Path]]) -> str:
+    return "duplicate number (the PR that merges second renumbers its file):\n  " + "\n  ".join(
+        f"{n}: " + ", ".join(p.name for p in ps) for n, ps in sorted(dups.items())
+    )
+
+
+def test_no_duplicate_spec_numbers():
+    paths = sorted((REPO_ROOT / "specs").glob("*.md"))
+    dups = _duplicate_numbers(paths, _SPEC_NUM_RE, _KNOWN_DUPLICATE_SPEC_NUMBERS)
+    assert not dups, _duplicate_message(dups)
+
+
+def test_no_duplicate_adr_numbers():
+    paths = sorted((REPO_ROOT / "docs" / "adr").glob("*.md"))
+    dups = _duplicate_numbers(paths, _ADR_NUM_RE)
+    assert not dups, _duplicate_message(dups)
+
+
+def test_duplicate_check_names_both_files():
+    """AC2's red case: a second `59-*.md` is caught and both files are named."""
+    dups = _duplicate_numbers(
+        [Path("specs/59-a.md"), Path("specs/59-b.md"), Path("specs/60-c.md")], _SPEC_NUM_RE
+    )
+    assert list(dups) == ["59"]
+    msg = _duplicate_message(dups)
+    assert "59-a.md" in msg and "59-b.md" in msg
+
+
+def test_duplicate_check_ignores_zero_padding():
+    specs = [Path("specs/05-a.md"), Path("specs/5-b.md"), Path("specs/25-c.md"), Path("specs/25b-d.md")]
+    assert list(_duplicate_numbers(specs, _SPEC_NUM_RE)) == ["5"]
+    adrs = [Path("docs/adr/0033-a.md"), Path("docs/adr/33-b.md")]
+    assert list(_duplicate_numbers(adrs, _ADR_NUM_RE)) == ["33"]
+
+
+def test_known_duplicate_allowlist_covers_exactly_the_18_pair():
+    paths = sorted((REPO_ROOT / "specs").glob("18-*.md"))
+    assert [p.name for p in paths] == ["18-model-adapter.md", "18-model-bundle-explainer.md"]
+    assert _KNOWN_DUPLICATE_SPEC_NUMBERS == {"18"}
+
+
+def _issue_header_problem(number: int, fields: dict) -> str | None:
+    """Specs numbered >= 102 take their number from their tracking issue (D5)."""
+    if number < 102:
+        return None
+    if "issue" not in fields:
+        return f"spec {number} has no `issue:` header (required for specs >= 102)"
+    if fields["issue"].strip("\"'") != f"#{number}":
+        return f"spec {number}: `issue: {fields['issue']}` must be \"#{number}\" (number = issue)"
+    return None
+
+
+@pytest.mark.parametrize(
+    "path",
+    [p for p in _d4_targets() if p.parent.name == "specs" and _SPEC_NUM_RE.match(p.name)],
+    ids=lambda p: p.name,
+)
+def test_new_specs_carry_their_tracking_issue(path: Path):
+    number = int(re.match(r"\d+", path.name).group())
+    problem = _issue_header_problem(number, _parse_header(path))
+    assert problem is None, f"{path}: {problem}"
+
+
+def test_issue_header_check_red_cases():
+    assert _issue_header_problem(59, {}) is None  # old specs are exempt
+    assert _issue_header_problem(102, {"issue": '"#102"'}) is None
+    assert "no `issue:` header" in _issue_header_problem(103, {})
+    assert "must be" in _issue_header_problem(104, {"issue": '"#103"'})
