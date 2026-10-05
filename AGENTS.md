@@ -27,8 +27,8 @@ In a git worktree there is no `.venv`: run
 
 1. CI green. 2. Linked issue; a change to a convention, an on-disk format or the public API also needs
 a signed-off short spec (`specs/TEMPLATE.md`). 3. Reviewed by someone other than the author (for an
-agent: a different session from the one that wrote the change); every finding is fixed in the PR or
-filed as an issue. 4. Real-run evidence pasted in the PR when real data, the cloud or pixels are touched.
+agent: a different session from the one that wrote the change, or in Claude Code the `pr-reviewer` subagent, see below);
+every finding is fixed in the PR or filed as an issue. 4. Real-run evidence pasted in the PR when real data, the cloud or pixels are touched.
 
 Every change reaches `main` through a pull request. Work on a branch, push it and open a draft PR; the
 maintainer merges. Never push to `main`. The PR description holds the work's state (done, next, review
@@ -81,6 +81,14 @@ findings). The PR title becomes the release-note line.
   same PR as its spec, with the next sequential `docs/adr/NNNN-` number.
 - **Model split.** A stronger model for design, debugging and review; a cheaper one to implement
   against a signed-off spec. Do not spawn subagents just to write code.
+- **Review without a relay (Claude Code only).** After pushing the branch and opening the PR, the implementing
+  session spawns the `pr-reviewer` subagent (`.claude/agents/pr-reviewer.md`: a stronger model, a fresh context,
+  no edit tools) with the PR number. Other agent tools, and people, get gate 3 the usual way. It posts its own review as a PR comment, which counts for gate 3.
+  Fix each finding in the PR or file it as an issue, push, then spawn it again to check the fixes. After
+  two rounds that still leave a **fix in PR** finding open, stop and hand the PR to the maintainer.
+  One reviewer per PR: do not add a review skill or more subagents on top. The second spawn checks only
+  the fixes since the commit it reviewed. To read a review, fetch only the latest one:
+  `gh pr view <N> --json comments --jq '[.comments[] | select(.body | startswith("## Gate-3 review"))][-1].body'`.
 - **Handoffs.** At a session boundary, write the state into the draft PR description (or the tracking
   issue before a PR exists), then start a fresh session pointed at it. Do not rely on a compacted
   context.
