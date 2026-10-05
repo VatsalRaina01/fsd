@@ -86,6 +86,9 @@ findings). The PR title becomes the release-note line.
   no edit tools) with the PR number. Other agent tools, and people, get gate 3 the usual way. It posts its own review as a PR comment, which counts for gate 3.
   Fix each finding in the PR or file it as an issue, push, then spawn it again to check the fixes. After
   two rounds that still leave a **fix in PR** finding open, stop and hand the PR to the maintainer.
+  One reviewer per PR: do not add a review skill or more subagents on top. The second spawn checks only
+  the fixes since the commit it reviewed. To read a review, fetch only the latest one:
+  `gh pr view <N> --json comments --jq '[.comments[] | select(.body | startswith("## Gate-3 review"))][-1].body'`.
 - **Handoffs.** At a session boundary, write the state into the draft PR description (or the tracking
   issue before a PR exists), then start a fresh session pointed at it. Do not rely on a compacted
   context.
