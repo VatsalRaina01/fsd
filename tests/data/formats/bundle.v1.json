@@ -10,9 +10,6 @@
       "<adapter.features>"
     ]
   },
-  "requirements": [
-    "scikit-learn>=1.3"
-  ],
   "required_bands": [
     "B04",
     "B08"

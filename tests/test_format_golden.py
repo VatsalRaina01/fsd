@@ -15,8 +15,11 @@ To change a format: bump the constant, add `<kind>.v<N+1>.json` (copy the failin
 output), keep the old files.
 
 Provenance: `declaration.v1.json` was produced by running the v1 `to_json` from git history
-(`2398c13^`); `bundle.v1.json` is `bundle.v2.json` minus `code`/`code_origin` with the version set to 1
-(a v1 bundle has no `code` block; same recipe as `test_bundle_code.test_version_1_bundle_still_loads`).
+(`2398c13^`) on `SourceDeclaration(reference_band="B08", mask_spec=MaskSpec(band="SCL",
+classes=(0, 1, 3, 8, 9, 10)), mask_keep=False, nodata=0, mosaic_method="median")` (input picked by
+hand, not S2's). `bundle.v1.json` is `bundle.v2.json` minus `code`/`code_origin`/`requirements`, with
+the version set to 1; checked against the v1 writer at `ca3833b^`, whose manifest is exactly
+`fsd_bundle_version, adapter, artifacts, feature` + the five spec fields.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ import sys
 
 import pytest
 
-from fsd.catalog import declaration as declaration_module
+from fsd.catalog import declaration
 from fsd.catalog.declaration import CollectionDeclaration, MaskSpec
 from fsd.model import bundle
 
@@ -61,36 +64,43 @@ def _assert_matches_golden(kind: str, const: str, version: int, got: dict) -> No
 
 # --- declaration -----------------------------------------------------------------------------
 
-# Every field set explicitly, to values unlike any default.
+# Every field set explicitly, to a value that differs from its default (so `from_json` dropping
+# any field fails `decl == _DECLARATION`).
 _DECLARATION = CollectionDeclaration(
     reference_band="B08",
-    native_grid=False,
-    mask_spec=MaskSpec(band="SCL", mask_type="categorical_classes", classes=(3, 8), bits=(1, 2)),
+    native_grid=True,
+    mask_spec=MaskSpec(band="SCL", mask_type="bitmask", classes=(3, 8), bits=(1, 2)),
     mask_keep=True,
     nodata=7,
-    mosaic_method="median",
+    mosaic_method="mean",
     scale=0.5,
     radiometry_bands=("B04", "B08"),
     band_aliases=(("red", "B04"), ("nir", "B08")),
     requires_subscription_key=True,
-    supports_cloud_cover=False,
+    supports_cloud_cover=True,
     mosaic_partition=("sat:orbit_state",),
-    partition_policy="raise",
+    partition_policy="auto",
 )
 
 
 def test_declaration_format_matches_golden():
-    version = declaration_module.FSD_DECLARATION_VERSION
+    version = declaration.FSD_DECLARATION_VERSION
     _assert_matches_golden(
-        "declaration", "FSD_DECLARATION_VERSION", version, declaration_module.to_json(_DECLARATION)
+        "declaration", "FSD_DECLARATION_VERSION", version, declaration.to_json(_DECLARATION)
     )
 
 
-@pytest.mark.parametrize("version", range(1, declaration_module.FSD_DECLARATION_VERSION + 1))
+@pytest.mark.parametrize("version", range(1, declaration.FSD_DECLARATION_VERSION + 1))
 def test_declaration_golden_files_still_load(version):
-    decl = declaration_module.from_json(_read_golden("declaration", version))
-    assert isinstance(decl, CollectionDeclaration)
-    if version == declaration_module.FSD_DECLARATION_VERSION:
+    decl = declaration.from_json(_read_golden("declaration", version))
+    if version == 1:
+        # v1 footers predate bits/scale/radiometry_bands/band_aliases/...; those take today's defaults.
+        assert decl == CollectionDeclaration(
+            reference_band="B08",
+            mask_spec=MaskSpec(band="SCL", classes=(0, 1, 3, 8, 9, 10)),
+            mask_keep=False, nodata=0, mosaic_method="median",
+        )
+    else:
         assert decl == _DECLARATION
 
 
@@ -106,6 +116,7 @@ class GoldenAdapter(BaseModelAdapter):
     output_dtype = "uint8"
     output_nodata = 255
     output_band_names = ["klass"]
+    feature_sequence = None
 
     def load(self):
         self.loaded = True
@@ -139,8 +150,17 @@ def test_bundle_format_matches_golden(tmp_path, golden_adapter):
     )
 
 
+def test_every_bundle_golden_is_a_supported_version():
+    """Dropping a version from `SUPPORTED_BUNDLE_VERSIONS` must mean deleting its golden file."""
+    assert bundle.BUNDLE_VERSION in bundle.SUPPORTED_BUNDLE_VERSIONS
+    on_disk = {
+        int(f.split(".v")[1].split(".")[0]) for f in os.listdir(GOLDEN_DIR) if f.startswith("bundle.v")
+    }
+    assert on_disk == set(bundle.SUPPORTED_BUNDLE_VERSIONS)
+
+
 @pytest.mark.parametrize("version", bundle.SUPPORTED_BUNDLE_VERSIONS)
-def test_bundle_golden_files_still_load(tmp_path, golden_adapter, version):
+def test_bundle_golden_files_still_load(tmp_path, monkeypatch, golden_adapter, version):
     manifest = _read_golden("bundle", version)
     bdir = tmp_path / "b"
     bdir.mkdir()
@@ -151,7 +171,10 @@ def test_bundle_golden_files_still_load(tmp_path, golden_adapter, version):
         code_dir.mkdir()
         (code_dir / "golden_adapter.py").write_text(_ADAPTER_SRC)
         sys.modules.pop("golden_adapter", None)  # force a fresh import from code/, not the fixture's copy
-        sys.path[:] = [p for p in sys.path if not p.endswith("srcroot")]
+        src_dir = str(tmp_path / "srcroot")
+        monkeypatch.setattr(sys, "path", [p for p in sys.path if p != src_dir])
     adapter = bundle.load(str(bdir))
+    if manifest.get("code"):
+        assert os.path.abspath(sys.modules["golden_adapter"].__file__).startswith(str(bdir))
     assert type(adapter).__name__ == "GoldenAdapter"
     assert adapter.loaded
