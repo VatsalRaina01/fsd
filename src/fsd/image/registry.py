@@ -30,7 +30,7 @@ from fsd.storage import fs
 
 __all__ = [
     "Resolved", "Status", "find_by_digest", "publish", "read_aml_record", "resolve",
-    "status", "write_aml_record",
+    "set_alias", "status", "write_aml_record",
 ]
 
 DEFINITION_FILE = "image.json"
@@ -125,6 +125,15 @@ def publish(
     if alias:
         core.set_alias(name, alias, version, registry, opts)
     return version
+
+
+def set_alias(
+    name: str, alias: str, version: int, registry: str, *, storage_options: dict | None = None,
+) -> None:
+    """Repoint `alias` at an already-published `version`. Never touches a version directory.
+    `publish(alias=...)` does this on every publish; this is the same move without a publish,
+    for a caller that found its definition already registered."""
+    core.set_alias(name, alias, version, registry, storage_options or {})
 
 
 def resolve(ref: str, registry: str, *, storage_options: dict | None = None) -> Resolved:
