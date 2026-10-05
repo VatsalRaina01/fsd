@@ -1,0 +1,16 @@
+# Release notes are generated from merged PR titles, grouped by label (spec 102 D15).
+# The maintainer applies one label per PR at merge.
+changelog:
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Features
+      labels: [feature]
+    - title: Fixes
+      labels: [fix]
+    - title: Documentation
+      labels: [docs]
+    - title: Internal
+      labels: [internal]
+    - title: Other changes
+      labels: ["*"]
