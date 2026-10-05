@@ -80,7 +80,6 @@ cfg = fsd.config.load()
 result = fsd.aml.ensure_environment(
     BASE, registry=cfg.image_registry,
     resource_group=cfg.resource_group, workspace=cfg.workspace,
-    alias="current",   # maintainer only -- see the note below; omit it everywhere else
 )
 print(result.ref, "reused" if result.reused else "just built")
 ```
@@ -89,7 +88,8 @@ print(result.ref, "reused" if result.reused else "just built")
 `"current"`, so any teammate's run repointed the shared `current` alias. Now only a call that asks
 moves one. Shared aliases (`current`, `champion`, `demo-*`) are the maintainer's to move, from
 `main`; a teammate working against the shared registry passes a personal one, `alias="dev-<you>"`,
-or none at all and uses `result.ref` / `result.registry_ref` directly.
+or none at all and uses `result.ref` / `result.registry_ref` directly. The maintainer promotes with
+the same call plus `alias="current"`; that works on a reuse as well as on a build.
 
 In order (D4):
 

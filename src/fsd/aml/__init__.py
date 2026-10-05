@@ -9,7 +9,8 @@ place that shells out to `az`, and it is check-then-build:
 2. look it up in the registry by digest,
 3. confirm the AML asset the registry points at still exists (a deleted asset is stale),
 4. on a miss: render the context and `az ml environment create`,
-5. publish the (possibly new) definition, record the AML asset it became, set the alias (only when `alias=` is passed).
+5. publish the (possibly new) definition, record the AML asset it became, and set the
+   alias (only when `alias=` is passed, on a reuse as well as on a build).
 
 `ensure_environment` never waits for the build to finish: an AML v2 image build is an
 ACR task run, not an AML job, so it returns the version and the Studio URL immediately.
@@ -84,6 +85,7 @@ def ensure_environment(
     _find_by_digest: Callable = img_registry.find_by_digest,
     _resolve: Callable = img_registry.resolve,
     _publish: Callable = img_registry.publish,
+    _set_alias: Callable = img_registry.set_alias,
     _write_aml_record: Callable = img_registry.write_aml_record,
     _environment_exists: Callable = env_mod.environment_exists,
     _create_environment: Callable = env_mod.create_environment,
@@ -94,8 +96,8 @@ def ensure_environment(
     (a base image moved under a tag you did not pin -- flytekit's `force_push()`).
 
     `alias=None` (the default) moves no registry pointer: not on a build, not on a reuse. Pass
-    `alias="current"` (or any name) to point it at the resulting version -- shared aliases such as
-    `current` are the maintainer's to move (spec 102 D12).
+    `alias="current"` (or any name) to point it at the resulting version, whether that was built
+    or reused -- shared aliases such as `current` are the maintainer's to move (spec 102 D12).
 
     `storage="azure"` forbids the anonymous fallback for an `abfss://` registry, exactly as
     `deploy`/`run_inference`/`verify_image` do (this was the one
@@ -107,7 +109,7 @@ def ensure_environment(
     exactly like "this definition is not registered yet" -- which would rebuild a 10-20 minute
     image on every call.
 
-    The `_find_by_digest`/`_resolve`/`_publish`/`_write_aml_record`/`_environment_exists`/
+    The `_find_by_digest`/`_resolve`/`_publish`/`_set_alias`/`_write_aml_record`/`_environment_exists`/
     `_create_environment`/`_build_link` parameters are the seam tests stub -- override them to avoid a
     real registry or a real `az` call; production code never passes them.
     """
@@ -123,7 +125,7 @@ def ensure_environment(
             force=force, alias=alias, storage_options=storage_options,
             resolve_base_digest=resolve_base_digest, resolve_git_ref=resolve_git_ref,
             _find_by_digest=_find_by_digest, _resolve=_resolve, _publish=_publish,
-            _write_aml_record=_write_aml_record, _environment_exists=_environment_exists,
+            _set_alias=_set_alias, _write_aml_record=_write_aml_record, _environment_exists=_environment_exists,
             _create_environment=_create_environment, _build_link=_build_link,
         )
 
@@ -143,6 +145,7 @@ def _ensure(
     _find_by_digest: Callable,
     _resolve: Callable,
     _publish: Callable,
+    _set_alias: Callable,
     _write_aml_record: Callable,
     _environment_exists: Callable,
     _create_environment: Callable,
@@ -168,6 +171,10 @@ def _ensure(
                 url = _build_link(
                     aml_name, aml_version, resource_group=resource_group, workspace=workspace,
                 )
+                # `publish` is the usual place an alias moves, and a reuse never reaches it:
+                # an explicit ask must still work (promoting a teammate's build to `current`).
+                if alias:
+                    _set_alias(defn.name, alias, hit, registry, storage_options=storage_options)
                 return EnsureResult(
                     aml_name, aml_version, f"{aml_name}:{aml_version}", d, True, url,
                     hit, f"{defn.name}:{hit}",
