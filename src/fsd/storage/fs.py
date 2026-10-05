@@ -337,9 +337,13 @@ def write_parquet(path: str, df, **storage_options: Any) -> None:
     fs, p = _fs_and_path(path, storage_options)
     _ensure_parent(fs, p)
     buf = io.BytesIO()
-    df.to_parquet(buf)
-
     attrs = {k: v for k, v in df.attrs.items() if k != SOURCE_PATH_ATTRS_KEY}
+    # Strip before to_parquet, not after: geopandas >= 1.2 serializes df.attrs into the
+    # footer itself, so a stamp left on `df` would leak. Shallow copy: caller's attrs stay.
+    clean = df.copy(deep=False)
+    clean.attrs = dict(attrs)
+    clean.to_parquet(buf)
+
     if attrs:
         import pyarrow.parquet as pq
 
