@@ -9,7 +9,7 @@ place that shells out to `az`, and it is check-then-build:
 2. look it up in the registry by digest,
 3. confirm the AML asset the registry points at still exists (a deleted asset is stale),
 4. on a miss: render the context and `az ml environment create`,
-5. publish the (possibly new) definition, record the AML asset it became, set the alias.
+5. publish the (possibly new) definition, record the AML asset it became, set the alias (only when `alias=` is passed).
 
 `ensure_environment` never waits for the build to finish: an AML v2 image build is an
 ACR task run, not an AML job, so it returns the version and the Studio URL immediately.
@@ -76,7 +76,7 @@ def ensure_environment(
     resource_group: str,
     workspace: str,
     force: bool = False,
-    alias: str | None = "current",
+    alias: str | None = None,
     storage: str | dict | None = None,
     storage_options: dict | None = None,
     resolve_base_digest: Callable[[str], str | None] | None = None,
@@ -92,6 +92,10 @@ def ensure_environment(
     """Digest `defn`, reuse a matching registered environment if one still exists in AML,
     otherwise build and publish a new one. `force=True` rebuilds regardless of a digest hit
     (a base image moved under a tag you did not pin -- flytekit's `force_push()`).
+
+    `alias=None` (the default) moves no registry pointer: not on a build, not on a reuse. Pass
+    `alias="current"` (or any name) to point it at the resulting version -- shared aliases such as
+    `current` are the maintainer's to move (spec 102 D12).
 
     `storage="azure"` forbids the anonymous fallback for an `abfss://` registry, exactly as
     `deploy`/`run_inference`/`verify_image` do (this was the one

@@ -159,7 +159,7 @@ def test_force_rebuilds_even_on_a_hit(tmp_path):
 # --- Opus review, 2026-08-27: the registry must follow the AML asset ---------------
 
 
-def _aml_of(registry_root, ref="fsd-aml-env@current"):
+def _aml_of(registry_root, ref="fsd-aml-env:1"):
     from fsd.image import registry as ireg
     return ireg.resolve(ref, registry_root).aml
 
@@ -312,3 +312,55 @@ def test_an_unsupported_storage_backend_raises(tmp_path, _clean_fsspec_conf):
             _build_link=lambda *a, **k: "https://ml.azure.com/x",
             **_kwargs(),
         )
+
+
+# --- spec 102 D12 / AC8: a run moves a pointer only when asked --------------------------
+
+
+def _aliases_file(registry_root):
+    return os.path.join(registry_root, "fsd-aml-env", "_aliases.json")
+
+
+def _ensure(registry_root, create_version, defn=DEFN, **extra):
+    return ensure_environment(
+        defn, registry=registry_root,
+        _create_environment=lambda name, ctx, **k: create_version,
+        _build_link=lambda *a, **k: "https://ml.azure.com/x",
+        **_kwargs(), **extra,
+    )
+
+
+def test_default_alias_leaves_aliases_untouched(tmp_path):
+    registry_root = str(tmp_path / "registry")
+
+    # A first build with no `alias=` writes no `_aliases.json` at all.
+    _ensure(registry_root, "1")
+    assert not os.path.exists(_aliases_file(registry_root))
+
+    # The maintainer points `current` at v1 on purpose.
+    _ensure(registry_root, "1", alias="current")
+    with open(_aliases_file(registry_root)) as f:
+        before = f.read()
+    assert '"current": 1' in before
+
+    # Build path: a changed definition publishes v2 and must not repoint `current`.
+    changed = ImageDefinition(name=DEFN.name, fsd=DEFN.fsd, extras=("azure", "mpc", "cdse"))
+    built = _ensure(registry_root, "2", defn=changed)
+    assert built.registry_version == 2
+    # Reuse path (live asset) and force-rebuild path (publish returns the existing version).
+    _ensure(registry_root, "9", defn=changed, _environment_exists=lambda *a, **k: True)
+    _ensure(registry_root, "10", defn=changed, force=True, _environment_exists=lambda *a, **k: True)
+
+    with open(_aliases_file(registry_root)) as f:
+        assert f.read() == before
+
+
+def test_explicit_alias_still_moves_the_pointer(tmp_path):
+    registry_root = str(tmp_path / "registry")
+    _ensure(registry_root, "1", alias="current")
+    changed = ImageDefinition(name=DEFN.name, fsd=DEFN.fsd, extras=("azure", "mpc", "cdse"))
+    _ensure(registry_root, "2", defn=changed, alias="dev-someone")
+
+    from fsd.image import registry as ireg
+    assert ireg.resolve("fsd-aml-env@current", registry_root).version == 1
+    assert ireg.resolve("fsd-aml-env@dev-someone", registry_root).version == 2

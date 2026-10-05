@@ -80,9 +80,16 @@ cfg = fsd.config.load()
 result = fsd.aml.ensure_environment(
     BASE, registry=cfg.image_registry,
     resource_group=cfg.resource_group, workspace=cfg.workspace,
+    alias="current",   # maintainer only -- see the note below; omit it everywhere else
 )
 print(result.ref, "reused" if result.reused else "just built")
 ```
+
+**`alias=` defaults to `None`: a run moves no registry pointer.** Before spec 102 the default was
+`"current"`, so any teammate's run repointed the shared `current` alias. Now only a call that asks
+moves one. Shared aliases (`current`, `champion`, `demo-*`) are the maintainer's to move, from
+`main`; a teammate working against the shared registry passes a personal one, `alias="dev-<you>"`,
+or none at all and uses `result.ref` / `result.registry_ref` directly.
 
 In order (D4):
 
@@ -95,7 +102,8 @@ In order (D4):
    version that fails at job submission;
 4. on a miss (no entry, or a deleted asset): render the context, `az ml environment create`,
    capture the version AML assigned;
-5. publish the (possibly new) definition to `registry=` and set the `current` alias.
+5. publish the (possibly new) definition to `registry=` and, only if you passed `alias=`, point that
+   alias at it.
 
 **`ensure_environment` never waits for the build.** An AML v2 image build is an ACR task run, not
 an AML job -- `result.build_url`, when set, is the Studio page; **you** watch it for
