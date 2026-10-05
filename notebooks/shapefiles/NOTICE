@@ -28,7 +28,7 @@ s2grid=4772924.geojson
 
     476da24  — south-east of Vienna (16.034–16.116 °E, 48.106–48.156 °N). Imagery only:
                it lies 47.7 km outside AT_ROI, and the nearest AT_2018_TRAIN field is
-               50.2 km away, so ZERO labels fall in it. Use it for single-tile imagery
+               50.2 km away, so ZERO labels fall in it. Use it for single-MGRS-tile imagery
                tests (download, datacube, CRS) that need no labels.
     4772924  — in the Waldviertel (15.390–15.472 °E, 48.482–48.532 °N), inside AT_ROI.
                43 AT_2018_TRAIN fields fall in it across 7 crop classes, and the Austria

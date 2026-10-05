@@ -166,4 +166,5 @@ Details in [`ARCHITECTURE.md` §8](ARCHITECTURE.md#8-contributing).
 
 ## License
 
-MIT.
+Code: MIT (`LICENSE`). Data derived from EuroCrops (`notebooks/shapefiles/AT_2018_TRAIN.geojson`,
+`tests/data/tutorial/fields.geojson`) is CC BY 4.0; see each folder's `NOTICE` for the citation.
