@@ -521,6 +521,48 @@ def test_issue_header_check_red_cases():
     assert "must be" in _issue_header_problem(104, {"issue": '"#103"'})
 
 
+# Spec 102 D7 / AC12: the index tables are frozen. The spec snapshot lists every spec up to 59 and
+# nothing after; newer specs are listed by their tracking issues. The ADR index has no table at all.
+_FROZEN_LAST_SPEC = 59
+
+
+def _spec_files() -> list[Path]:
+    return [p for p in (REPO_ROOT / "specs").glob("*.md") if p.name not in _EXCLUDE_BASENAMES]
+
+
+def _snapshot_problems(listed: set[str], spec_names: list[str]) -> list[str]:
+    problems = []
+    for name in spec_names:
+        m = re.match(r"\d+", name)
+        frozen = m is None or int(m.group()) <= _FROZEN_LAST_SPEC
+        if frozen and name not in listed:
+            problems.append(f"{name} is missing from the frozen snapshot")
+        if not frozen and name in listed:
+            problems.append(f"{name} is listed, but the snapshot is frozen at spec {_FROZEN_LAST_SPEC}")
+    return problems
+
+
+def test_spec_index_is_a_frozen_snapshot_up_to_59():
+    text = (REPO_ROOT / "specs" / "README.md").read_text(encoding="utf-8")
+    assert "frozen" in text.lower()
+    listed = set(_MD_LINK_RE.findall(text))
+    problems = _snapshot_problems(listed, [p.name for p in _spec_files()])
+    assert not problems, "\n".join(problems)
+
+
+def test_snapshot_check_red_cases():
+    assert _snapshot_problems({"59-x.md"}, ["59-x.md", "102-y.md"]) == []
+    assert "missing" in _snapshot_problems(set(), ["48-x.md"])[0]
+    assert "frozen at spec 59" in _snapshot_problems({"102-y.md"}, ["102-y.md"])[0]
+    assert "missing" in _snapshot_problems(set(), ["research-notes.md"])[0]
+
+
+def test_adr_index_has_no_table():
+    text = (REPO_ROOT / "docs" / "adr" / "README.md").read_text(encoding="utf-8")
+    rows = [line for line in text.splitlines() if line.startswith("| [0")]
+    assert not rows, f"docs/adr/README.md is frozen (ADR 0033); the folder listing is the index: {rows[:2]}"
+
+
 @pytest.mark.parametrize("notice", ["notebooks/shapefiles/NOTICE", "tests/data/tutorial/NOTICE"])
 def test_eurocrops_notices_carry_licence_and_citation(notice):
     """Spec 102 D14/AC10: data derived from EuroCrops is CC BY 4.0 and must be credited."""
