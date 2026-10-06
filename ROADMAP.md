@@ -304,6 +304,17 @@ after this one, not part of it.
 **P0–P1 need zero infra changes** — pure de-risking, two team-visible releases before we're
 ever blocked on someone else's `terraform apply`. The first infra proposal is P2 (Batch quota).
 
+### 5.1 Goals after the demo target
+
+The demo target (§5.0) was met on 2026-07-29, when the cluster demo ran. These goals followed it, in
+order. The current goal's state lives in its tracking issue and the pinned "Order of work" issue.
+
+| Goal | Set | Status |
+|---|---|---|
+| **fsd as an installed module, driven from a notebook** | 2026-08-21 | ✅ **Done** (maintainer, 2026-10-07). A notebook in a separate repository, with fsd installed as a pinned dependency, ran the full pipeline and the work was demoed. Built by specs 54–57 and issues #78–#82; `v0.1.0` was tagged on 2026-09-04. |
+| **Collection-agnostic verbs** (spec 58) | 2026-09-04 | 🅿️ **Parked** (maintainer, 2026-10-07). Sentinel-2 L2A and Sentinel-1 RTC work through the same verbs; Sentinel-1 ran on AML on 2026-09-29. HLS (spec 58 P3) is parked: new satellite sources are meant to come from contributors, not from the maintainer alone. MODIS was deferred on 2026-09-04. |
+| **Contributor readiness** (spec 102) | 2026-09-29 | Current. See #102. |
+
 ### 5.9 Post-v1 sequencing (user, 2026-07-02) — historical, moved from the old TODO file
 
 > Moved here verbatim when the old TODO file became a stub (spec 41 D8/P2, 2026-07-30). **Point-in-time:
