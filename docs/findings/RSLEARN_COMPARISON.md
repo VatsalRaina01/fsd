@@ -1,3 +1,8 @@
+---
+status: historical
+summary: Build-vs-borrow read of AllenAI's rslearn v0.1.12 against fsd, 2026-07-06. Replaced by spike/RSLEARN_SPIKE_REPORT.md, which found this analysis wrong about fsd's calendar-T contract being unique.
+---
+
 # rslearn vs fsd — build-vs-borrow analysis
 
 > **Status: analysis + OPEN DECISION (2026-07-06).** A thorough read of the `rslearn/`

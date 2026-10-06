@@ -112,6 +112,27 @@ This is the field-by-field table (spec 34 §2a) — what the builder reads, and 
 this is what lets a no-mask build (`bands=["B04"]`) work even against a declaration
 that *has* a mask (spec 34 #35).
 
+## Pointing a run at another collection is not a rename
+
+The verbs take `collection=`, but changing it and `bands=` is not enough. Read the declaration
+first (`fsd.collections.get(id)`). Four things break when a sentinel-2-l2a run is pointed at
+`sentinel-1-rtc` (found 2026-09-12):
+
+1. **One catalog file holds one collection.** `TileCatalog.append` raises a *declaration conflict*
+   when rows of a second collection go into an existing catalog, so a new collection needs its own
+   archive root.
+2. **`max_cloudcover` raises** on a collection that declares `supports_cloud_cover=False`. Pass
+   `None`.
+3. **`properties_filter` is required** when the declaration sets `mosaic_partition` with
+   `partition_policy="raise"` (S1: one `sat:orbit_state` per window).
+4. **The feature sequence may stop making sense.** `fsd.bands.modify.compute_bands` knows only
+   optical indices (NDVI, SAVI, … on B02–B12) and raises when their bands are missing. The silent
+   ones are `scale_bands` and `mask_invalid_and_interpolate` given a band list: they act only on
+   names they find, so S2 band names do nothing on an S1 cube and nothing raises.
+
+In a notebook or demo, derive every collection-dependent constant from one `COLLECTION` name in a
+single block, rather than editing literals in place.
+
 ## Docstring DoD
 
 Every declaration field is documented at its definition in

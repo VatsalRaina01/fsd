@@ -146,6 +146,23 @@ band math uses the 5-D contract `(samples, timestamps, height, width, bands)` pl
 dict; nodata is 0; cubes over one start/end/`mosaic_days` share an identical `timestamps` axis
 (`T = ceil((end-start)/mosaic_days)`), which `flatten` requires.
 
+**Code that looks simplifiable but is not:**
+
+- **`_dt2ts` attaches UTC to a naive date** (`datacube/ops.py`). Catalog timestamps are tz-aware;
+  a user's `startdate`/`enddate` arrive naive, and pandas raises when it compares the two. Any user
+  date compared with catalog times goes through it.
+- **`metadata.pickle.npy` is pickled through `np.save(allow_pickle=True)`**, not raw `pickle`. A
+  cube's metadata (geometry, the timestamp of each slice, dimension names) is a dict that cannot
+  live in the array. A raw-`pickle` file written on macOS failed to read on Ubuntu; going through
+  `np.save` was stable across both. xarray could one day replace the dict + array pair.
+- **Bands are resampled *to a real reference image* (B08, 10 m)**, never to an abstract target
+  grid, because the resampler does not reliably line up with one. Another resolution means another
+  reference band, not new resample parameters. Unmeasured so far: [#100](https://github.com/nikhilsrajan/fsd/issues/100).
+- **MGRS tiles are moved into one CRS before `rasterio.merge`**, which needs a single CRS: the zone
+  with the largest mean `area_contribution` wins.
+- **Raster output is checked by eye in QGIS.** Unit tests do not prove pixels are right; a change
+  to raster code ships with an inspectable output (gate 4 in `CONTRIBUTING.md`).
+
 ## 5. The three modes
 
 | mode | who does what | state |
@@ -185,8 +202,10 @@ per shell, and `fsd config` shows the resolved value and where each one came fro
 
 ## 8. Contributing
 
-- **Setup:** `python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`
-- **Before you push:** `.venv/bin/python -m pytest -q` and `.venv/bin/ruff check src/ tests/ demos/`
+Setup, the four gates and the review checklist are in [`CONTRIBUTING.md`](CONTRIBUTING.md); test
+data is described in [`docs/reference/test-data.md`](docs/reference/test-data.md). What the
+architecture adds:
+
 - **Tests are synthetic and offline.** Anything needing credentials, a cluster or human eyes is a
   **run-book** (`runbooks/`, spec 24), not a test.
 - **Docs can fail the suite** — `tests/test_docs.py` checks point-in-time status headers, config-key
@@ -198,8 +217,9 @@ per shell, and `fsd config` shows the resolved value and where each one came fro
   the progress archive. Supersede them with a new document instead.
 - **Open work is GitHub Issues**, not a file. Issue numbers #1–#62 are aligned with the historical
   `TODO #NN` references.
-- **Never commit a concrete Azure identifier.** Run `RECIPES.md`'s sweep after any session that
-  writes prose about a real run — it has caught **four** leaks that way, the most recent being a
-  write-up that spelled the identifier out while explaining that it had been scrubbed. Describe the
-  identifier, never spell it.
+- **Never commit a concrete Azure identifier.** Describe the identifier, never spell it.
+  `tests/test_notebooks.py`'s identifier guard catches the usual shapes (GUIDs, home paths, resource
+  names, personal blob prefixes) in the files it scans; anything else still needs a human eye. Prose
+  about a real run has leaked identifiers four times, once in a write-up explaining that the
+  identifier had been scrubbed.
 

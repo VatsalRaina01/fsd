@@ -106,8 +106,7 @@ _Avoid_: baseline (S2-only word), collection version, product version.
 
 **Grid cell** (a.k.a. S2 grid cell):
 The ~5 km ROI subdivision on the S2-geometry grid (`fsd.grid.roi_to_s2_grids`), id like `165b09c`. One
-grid cell = one inference datacube = one build+infer unit-of-work = one `output.tif`. See `CLAUDE.md` for
-the MGRS-tile-vs-grid-cell distinction.
+grid cell = one inference datacube = one build+infer unit-of-work = one `output.tif`. Never write a bare "tile": say MGRS tile or grid cell.
 _Avoid_: bare "tile" (ambiguous with MGRS tile).
 
 **MGRS tile** (a.k.a. satellite / Sentinel-2 tile):

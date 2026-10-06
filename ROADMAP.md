@@ -4,7 +4,7 @@
 > fsd is going (the north-star), how we get there in small releases (the roadmap), and the
 > **model contract** that lets project teams plug their own models into fsd. It feeds the
 > numbered specs in `fsd/specs/` — decisions here graduate into specs before implementation.
-> Infra ground-truth for the cloud phases lives in **`fsd/AZURE_INFRA.md`** (the `rise`
+> Infra ground-truth for the cloud phases lives in **`docs/reference/AZURE_INFRA.md`** (the `rise`
 > project). Read `fsd/PROGRESS.md` for current build status.
 >
 > The F1–F5 decisions baked into §3 are **proposed**, pending the user's sign-off.
@@ -236,7 +236,7 @@ path is a distraction until it ships:
 > session to detect. *Why Batch was displaced:* `runbooks/36-runner-fork-probe.md` measured the
 > project's Batch account at a **6 vCPU** dedicated core quota against a **64-core** pool VM — it
 > cannot allocate one node — while the AML `d16` cluster offers 512 cores today under **the same
-> managed identity spec 31 already proved against blob**. Full evidence: `AZURE_INFRA.md` §3.1.
+> managed identity spec 31 already proved against blob**. Full evidence: `docs/reference/AZURE_INFRA.md` §3.1.
 > **Batch is dropped, not deferred** (user, 2026-07-21 — strict YAGNI): AML ships the demo, and the
 > seam is already demonstrated by local-Snakemake ↔ AML. Revisit only if something actually needs it.
 
@@ -251,10 +251,10 @@ path is the same call with two arguments changed, which we drive."* Protecting t
 path, cloud as a backend — **is** the demo. If the Batch runner ends up needing its own pipeline
 code, the demo has failed even if it runs fast.
 
-**What is left, in order** (detail: `AZURE_INFRA.md` §3.1/§7/§8, TODO #41):
+**What is left, in order** (detail: `docs/reference/AZURE_INFRA.md` §3.1/§7/§8, TODO #41):
 
 1. ~~**Decide Batch vs AML.**~~ ✅ **RESOLVED 2026-07-21 → AML** (`cluster-<proj>-d16`), by measurement
-   rather than argument: `runbooks/36-runner-fork-probe.md` + `AZURE_INFRA.md` §3.1. Batch dropped.
+   rather than argument: `runbooks/36-runner-fork-probe.md` + `docs/reference/AZURE_INFRA.md` §3.1. Batch dropped.
 2. **Write spec 36 (the scale-runner spec)** — settles §7's remaining questions: where the driver
    runs, blob data layout, the job environment/image, the `--runner=` seam, idempotency under
    retries, telemetry. *(§7's task-granularity question is already answered — see below.)*
@@ -278,7 +278,7 @@ list and launches copies of code that is already proven — the strongest form o
 not a rewrite." Retry/resume is per-shard, made safe by per-cube skip-if-exists (§8.1).
 
 ✅ **No spike is needed first.** GDAL/VSI auth under MSI — long carried as *the* technical
-unknown (`AZURE_INFRA.md` §7.3) — was **solved and proven on real Azure by spec 31**
+unknown (`docs/reference/AZURE_INFRA.md` §7.3) — was **solved and proven on real Azure by spec 31**
 (`fsd.raster.rio_open` → `/vsiadls/` + fresh token; runbook `31-p1-datacube-on-blob.md` green
 2026-07-18). §7.3/§8 are now marked resolved. The residual is narrower and lands in **P4**, not
 here: GDAL *writes* to blob for inference-output COGs are still unproven (`rio_open` raises on a
@@ -382,7 +382,7 @@ not begin with a storage problem — it begins at the runner.
 
 **Evidence:** [`spike/RSLEARN_SPIKE_REPORT.md`](spike/RSLEARN_SPIKE_REPORT.md) — §6.4 is the
 decision, §6.5 explains why it cut differently from the report's own recommendation. The report
-also supersedes [`RSLEARN_COMPARISON.md`](RSLEARN_COMPARISON.md) (2026-07-06), which was wrong
+also supersedes [`docs/findings/RSLEARN_COMPARISON.md`](docs/findings/RSLEARN_COMPARISON.md) (2026-07-06), which was wrong
 about fsd's calendar-`T` contract being unique.
 
 ---
@@ -396,11 +396,11 @@ about fsd's calendar-`T` contract being unique.
 - **Where the model bundle is stored/registered** on cloud (ACR? blob? AML registry?) — P6.
 - **Multi-band feature vocab limits** — is `bands.modify` expressive enough, or is the callable
   escape hatch load-bearing from day one?
-- Everything in `AZURE_INFRA.md` §7–§8 (Batch task granularity, driver host, GDAL-VSI auth,
+- Everything in `docs/reference/AZURE_INFRA.md` §7–§8 (Batch task granularity, driver host, GDAL-VSI auth,
   data layout, container image, idempotency at scale).
 
 ---
 
 *Maintenance: update phase status as releases ship; fold each resolved decision into its
-numbered spec. Cross-refs: `AZURE_INFRA.md` (infra), `PROGRESS.md` (build status),
+numbered spec. Cross-refs: `docs/reference/AZURE_INFRA.md` (infra), `PROGRESS.md` (build status),
 `specs/` (signed-off designs).*
