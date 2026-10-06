@@ -35,8 +35,16 @@ print(int(labels.to_crs(cell.crs).intersects(cell.geometry.iloc[0]).sum()))   # 
 
 ## 3. Not in git: the Austria archive (real imagery)
 
+> **Current fsd cannot read this archive yet.** It was downloaded on 2026-09-07, before spec 59
+> changed the catalog schema. Its `catalog.parquet` lacks `acquisition_key`, `processing_version`,
+> `processing_datetime` and `source`, so `TileCatalog.read` refuses it and asks for a re-download.
+> Spec 59 D12 re-downloads it into the shared local archive `tests/outputs/imagery/`; that run
+> has not happened yet (spec 59 P2, "the full Austria re-download"). Until then, real-imagery runs
+> need that re-download first.
+
 `tests/outputs/demo_e2e/imagery/` (gitignored). Downloaded from Microsoft Planetary Computer on
-2026-09-07 by `runbooks/58-redownload-austria-mpc.md`, which is also how to rebuild it.
+2026-09-07 by `runbooks/58-redownload-austria-mpc.md`. The table describes that download; spec 59
+D12 re-fetches the same 184 granules and bands from MPC.
 
 | | |
 |---|---|

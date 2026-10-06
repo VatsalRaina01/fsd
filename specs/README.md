@@ -1,12 +1,11 @@
 # Specs — index
 
-> **Why this file:** specs are point-in-time design documents (spec 41 D3/ADR 0022) — each records
-> what was decided *then* and is never substantially edited after the fact. Every spec below carries
-> a D4 status header (`current` / `superseded-by-NN` / `historical`, ADR 0023); this table adds the
-> thing the header deliberately excludes — **implementation status and its evidence** — because that
-> field is process state that goes stale (three specs' hand-written headers already had, before this
-> refactor). This index is **regenerated**, not hand-maintained forever; re-derive it rather than
-> patching it piecemeal.
+> **Frozen snapshot (spec 102 D7, ADR 0033, 2026-10-06).** This table lists specs 00–59 and gets no
+> more rows. **For a newer spec, read its tracking issue:** from spec 102 on, a spec's number is its
+> tracking issue's number, and the issue's state is its implementation status (open = not done).
+> The "implemented?" column was re-checked against merge commits on 2026-10-06 and will not be
+> updated again. Each spec's own `status:` header (`current` / `superseded-by-NN` / `historical`,
+> ADR 0023) still holds.
 
 | # | spec | status | implemented? | evidence |
 |---|------|--------|---------------|----------|
@@ -50,16 +49,28 @@
 | 35 | [declaration-persistence.md](35-declaration-persistence.md) | current | yes | `tests/test_declaration.py`; ADR 0013 |
 | 36 | [scale-runner.md](36-scale-runner.md) | current | yes | `tests/test_scale_runner.py`; ADR 0005, ADR 0017 |
 | 37 | [download-on-aml.md](37-download-on-aml.md) | current | yes | `tests/test_download_aml.py` |
-| 38 | [inference-on-aml.md](38-inference-on-aml.md) | current | implemented; cluster validation run pending | `tests/test_infer_aml.py`; `runbooks/38-inference-on-aml.md` |
+| 38 | [inference-on-aml.md](38-inference-on-aml.md) | current | yes; cluster-validated 2026-07-28 | `tests/test_infer_aml.py`; `runbooks/38-inference-on-aml.md`; merge `4be331b` |
 | 39 | [training-data-on-aml.md](39-training-data-on-aml.md) | current | yes | `tests/test_training_data_aml.py` |
 | 40 | [e2e-aml-demo-script.md](40-e2e-aml-demo-script.md) | current | yes | `tests/test_e2e_aml_demo_helpers.py`, `tests/test_plot_aml_timings.py`, `tests/test_restamp_cli.py`; ADR 0021 |
-| 41 | [docs-refactor.md](41-docs-refactor.md) | current | P1 (this batch) done; P2-P5, P7 not started | `tests/test_docs.py`; ADRs 0022-0026 |
-| 42 | [tutorial-fixture.md](42-tutorial-fixture.md) | current | not implemented | `runbooks/43-build-tutorial-fixture.md` written; generator scripts + `tests/test_tutorial_fixture.py` not yet written |
-| 43 | [history.md](43-history.md) | current | **signed off 2026-09-02, not implemented** | `docs/history.md` not yet written; closes spec 41 **P8**, its last unbuilt phase, and the story half of [#55](https://github.com/nikhilsrajan/fsd/issues/55) (whose C4 half spec 41 D0 already closed). Number **43** is deliberate: ~8 references in spec 41 + `docs/progress-archive.md` already name it, and this repo forces number alignment rather than rewriting references (ADR 0024 / spec 41 D8) |
-| 44 | [bundle-carried-adapter-code.md](44-bundle-carried-adapter-code.md) | current | **phase 1 implemented** (D1–D6 + amendment A1); phase 2 (D7/D8 `deploy`) not started | `tests/test_bundle_code.py` (24 tests) + `runbooks/45-verify-bundle-carried-code.md`; supersedes spec 38 D4 (§0); phase 2 would close `ROADMAP.md` §7 model-store question |
-| 45 | [bundle-transparency-and-image-verification.md](45-bundle-transparency-and-image-verification.md) | current | **implemented + merged 2026-08-19** | `tests/test_bundle_transparency.py` (15 tests) + `src/fsd/model/verify_image.py`; closes #70/#71/#72 (`bundle.save` reports what it embedded + refuses two unloadable bundles) and #67 (`fsd.model.verify_image`); merge `20b6009` |
-| 46 | [run-addressability-and-grid-dedup.md](46-run-addressability-and-grid-dedup.md) | current | **implemented + merged 2026-08-19** | `tests/test_grid.py` (+5), `tests/test_workflows.py` (+1); closes #68 (run folder named from the requested window + `mosaic_days`) and #69 (drop grid cells another cell covers); re-measured on the real ROIs (9->1, 300->299); merge `20b6009` |
-| 47 | [driver-side-honesty.md](47-driver-side-honesty.md) | current | **signed off 2026-08-20, not implemented** | issues #66 (refuse a stale `input.csv` work list), #65 (progress on the four silent AML legs) and #64 (diff the catalog before dispatching an MPC download), plus Part D **amending spec 45 D4** (caller misuse must raise, not return `pass: False`); all six §7 questions resolved; §3a's download defect split out as #74 |
+| 41 | [docs-refactor.md](41-docs-refactor.md) | current | yes (P1–P7; P6 = spec 42, P8 = spec 43) | `tests/test_docs.py`; ADRs 0022–0026; merge `e144d27` (P7) |
+| 42 | [tutorial-fixture.md](42-tutorial-fixture.md) | current | yes | `tests/data/tutorial/`, `tests/test_tutorial_fixture.py`, `tests/test_build_fixture.py`; commits `2bdc4c6` (P6 step 1), `38eefed` (the fixture) |
+| 43 | [history.md](43-history.md) | current | yes | `docs/history.md`; ADR 0027; merge `675a1c7` (closes #55) |
+| 44 | [bundle-carried-adapter-code.md](44-bundle-carried-adapter-code.md) | current | phase 1 yes; phase 2 (D7/D8) superseded by spec 51 | `tests/test_bundle_code.py`; merge `9881c1e` |
+| 45 | [bundle-transparency-and-image-verification.md](45-bundle-transparency-and-image-verification.md) | current | yes | `tests/test_bundle_transparency.py`, `src/fsd/model/verify_image.py`; merge `20b6009` |
+| 46 | [run-addressability-and-grid-dedup.md](46-run-addressability-and-grid-dedup.md) | current | yes | `tests/test_grid.py`, `tests/test_workflows.py`; merge `20b6009` |
+| 47 | [driver-side-honesty.md](47-driver-side-honesty.md) | current | yes, except D9 (deferred: #75) | `tests/test_download_aml.py`, `tests/test_progress.py`; merge `2e5b3b3` |
+| 48 | [verify-adapter.md](48-verify-adapter.md) | current | yes | `tests/test_verify_adapter.py`; merge `c0d9d17` |
+| 49 | [skip-work-already-done.md](49-skip-work-already-done.md) | current | yes | `tests/test_build_skip.py`, `tests/test_flatten_skip.py`; merge `c0d9d17` |
+| 50 | [backward-walk.md](50-backward-walk.md) | current | steps 0/1/2/4 yes; step 3 (D9) waits on #84 | `tests/test_backward_walk.py`; merge `1876c16` |
+| 51 | [deploy-model-registry.md](51-deploy-model-registry.md) | current | yes (§9 steps 0–3) | `tests/test_registry.py`, `tests/test_deploy.py`; merges `2b5ae4b` (step 0) … `002c85e` (step 3) |
+| 52 | [registry-on-blob.md](52-registry-on-blob.md) | current | yes; verified on Azure 2026-08-25 | `tests/test_registry.py`; `runbooks/52-registry-on-blob.md`; merge `f2fe6bf` |
+| 53 | [blob-registry-on-the-local-run-path.md](53-blob-registry-on-the-local-run-path.md) | current | yes | `tests/test_local_bundle_staging.py`; merge `38a2d09` |
+| 54 | [user-level-config.md](54-user-level-config.md) | current | yes | `tests/test_config.py`, `tests/test_cli.py`; merge `9a00f2b` (closes #78) |
+| 55 | [root-leaves-the-config.md](55-root-leaves-the-config.md) | current | yes | `tests/test_config.py`, `tests/test_cli.py`; merge `7e809cd` |
+| 56 | [image-definitions-and-registry.md](56-image-definitions-and-registry.md) | current | yes | `tests/test_image_definition.py`, `tests/test_image_registry.py`; merge `b6ba610` |
+| 57 | [collect-and-stac-round-trips.md](57-collect-and-stac-round-trips.md) | current | yes | `tests/test_catalog_stac.py`, `tests/test_api_roi.py`; merge `52f7b2b` |
+| 58 | [collection-agnostic-verbs.md](58-collection-agnostic-verbs.md) | current | P1 + P2 (S1 RTC) yes; P3 (HLS) not started | `tests/test_spec58_p1.py`, `tests/test_spec58_p2.py`; ADRs 0028–0031; merges `38954a4`, `795b117` |
+| 59 | [imagery-archive-layout.md](59-imagery-archive-layout.md) | current | P1, P2 Window A, D12 yes; full Austria re-download not done | `tests/test_spec59_p1.py`; ADR 0032; merges `d8aa8dd` (P1), `77ac790` (P2 Window A), `7c5493e` (D12) |
 | — | [research-s2-reprocessing-dedup.md](research-s2-reprocessing-dedup.md) | current | n/a (research notes) | cited by spec 33 |
 
 ## Conventions
@@ -67,5 +78,4 @@
   named in `superseded_by` instead.
 - **`25b` and `research-s2-reprocessing-dedup`** are non-numeric-suffix filenames; `superseded_by`
   (when used) names the file's stem exactly as it appears in `specs/`, not a bare two-digit number.
-- Status header format and rules: spec 41 D4 / ADR 0023. To regenerate this table: re-derive each
-  row from `CHANGES.md`, `docs/adr/`, and the tests directory — do not hand-patch a stale row.
+- Status header format and rules: spec 41 D4 / ADR 0023. Why this table is frozen: ADR 0033.
