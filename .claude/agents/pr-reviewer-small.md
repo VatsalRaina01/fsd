@@ -11,8 +11,9 @@ The delegation prompt gives a PR number.
 
 ## Is the PR small?
 
-Check before reviewing (skip this section in a round 2: a re-check covers only the fix diff, even if the
-fixes grew the PR past the limits). The PR is small only if all three hold:
+First find the round: do the lookup in `pr-reviewer.md` Inputs step 3. In a round 2 skip the rest of this
+section: a re-check covers only the fix diff, even if the fixes grew the PR past the limits. In a round 1,
+check before reviewing. The PR is small only if all three hold:
 
 1. **No contract change.** The linked issue is not a spec's tracking issue, and the PR adds or changes no
    spec or ADR (`gh pr view <N> --json body,files`).
