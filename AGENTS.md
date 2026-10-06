@@ -1,100 +1,129 @@
 # AGENTS.md — fsd
 
-Instructions for AI coding agents working in this repo. Humans: start with `CONTRIBUTING.md`; this
-file adds the code conventions and the optional agent method.
+Instructions for AI coding agents in this repo. People: start with `CONTRIBUTING.md`.
 
-## What this is
+## What fsd is
 
-`fsd` downloads Sentinel-2 L2A imagery, builds datacubes and flattens them to training data, with a
-verb API (`fsd.download`, `fsd.create_training_data`, `run_inference`, `deploy`). It runs locally or
-scales onto Azure ML without cloud lock-in. Model *training* stays on the user's side. Plan:
-`ROADMAP.md`. Design: `ARCHITECTURE.md`. Vocabulary: `CONTEXT.md`.
+`fsd` downloads Sentinel-2 L2A imagery, builds datacubes and flattens them into training data. Its verb
+API is `fsd.download`, `fsd.create_training_data`, `run_inference` and `deploy`. It runs locally or on
+Azure ML, with no cloud lock-in. Users train their own models; fsd does not. The plan is in
+`ROADMAP.md`, the design in `ARCHITECTURE.md`, the vocabulary in `CONTEXT.md`.
 
 ## Setup and checks
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,local]"            # CI installs every extra; add what your change touches
-.venv/bin/python -m pytest -q            # fast, synthetic, deterministic (network marker is off)
+pip install -e ".[dev,local]"            # CI installs every extra; add the ones your change needs
+.venv/bin/python -m pytest -q            # fast, synthetic, deterministic; network tests are off
 .venv/bin/ruff check src/ tests/
-.venv/bin/python scripts/docs_kwarg_sweep.py   # notebook/doc calls still match verb signatures
+.venv/bin/python scripts/docs_kwarg_sweep.py   # calls in docs and notebooks match the real signatures
 ```
 
-In a git worktree there is no `.venv`: run
+A git worktree has no `.venv`. Run tests there with
 `PYTHONPATH=src <main-checkout>/.venv/bin/python -m pytest -q -p no:cacheprovider`.
 
-## The four gates (every PR; details in `CONTRIBUTING.md`)
+## How a change reaches `main`
 
-1. CI green. 2. Linked issue; a change to a convention, an on-disk format or the public API also needs
-a signed-off short spec (`specs/TEMPLATE.md`). 3. Reviewed by someone other than the author (for an
-agent: a different session from the one that wrote the change, or in Claude Code the `pr-reviewer` subagent, see below);
-every finding is fixed in the PR or filed as an issue. 4. Real-run evidence pasted in the PR when real data, the cloud or pixels are touched.
+Every change is a pull request. Work on a branch, push it, and open a draft PR. Only the maintainer
+merges; never push to `main`. The PR description holds the state of the work: what is done, what is
+next, and the review findings. The PR title becomes the line in the release notes.
 
-Every change reaches `main` through a pull request. Work on a branch, push it and open a draft PR; the
-maintainer merges. Never push to `main`. The PR description holds the work's state (done, next, review
-findings). The PR title becomes the release-note line.
+A PR merges when it passes four gates (details in `CONTRIBUTING.md`):
+
+1. **CI is green.** A PR that changes only Markdown files (or `LICENSE` / `NOTICE`) runs ruff, the docs
+   tests and the docs sweep. Every other PR runs everything.
+2. **It links an issue.** A change to a convention, an on-disk format or the public API also needs a
+   short spec (`specs/TEMPLATE.md`), signed off before the code is written.
+3. **Someone other than the author reviewed it.** For an agent, that is a different session, or a
+   reviewer agent (below). Every finding is fixed in the PR or filed as an issue.
+4. **A real run is shown** when the change touches real data, the cloud or pixels: the output or a
+   screenshot, pasted into the PR.
 
 ## Rules for all agents
 
-1. **Hand risky runs to a human.** Run fast local checks yourself (pytest, ruff, grep, reading files).
-   Anything that touches the network, the cloud or credentials, or runs longer than a few minutes, goes
-   to the human, who pastes back the result.
-2. **Prior-art check.** Before proposing a mechanism (a design, process or test pattern), say whether
-   it is homemade. If it is, look for the established practice documented **before 2022-11-30** and
-   prefer it. Cite it so a reviewer can verify it (a link, plus what it contributed), or say what you
-   searched and that nothing fit. Never invent a precedent to satisfy this rule.
-3. **Privacy.** Describe an identifier; never spell it out in anything committed (GUIDs, resource
-   names, personal paths). Blob paths (storage account, container, `abfss://`) may be committed.
-4. **Ask before changing a contract.** If a request contradicts a rule here, say so before proceeding.
+1. **Hand risky runs to a person.** Run fast local checks yourself: pytest, ruff, grep, reading files.
+   Anything that uses the network (beyond `git` and `gh`), the cloud or credentials, or runs longer than
+   a few minutes, goes to a person as a run-book. They paste back the result.
+2. **Check for prior art.** Before you propose a mechanism (a design, a process, a test pattern), say
+   whether it is homemade. If it is, look for an established practice documented before 2022-11-30 and
+   prefer it. Cite it so a reviewer can check it (a link, plus what it contributed), or say what you
+   searched and that nothing fit. Never invent a precedent.
+3. **Keep identifiers private.** Describe an identifier; never write it into anything committed (GUIDs,
+   resource names, personal paths). Blob paths (storage account, container, `abfss://`) are fine.
+4. **Flag conflicts.** If a request contradicts a rule here, say so before you act on it.
 
 ## Code conventions
 
-- **All file I/O goes through `fsd.storage`** (fsspec), so local, Azure Blob and S3 are config, not
-  code. The one exception is raster pixel reads, which use rasterio/GDAL VSI. S3 transport is generic
-  (`s3fs`, any `endpoint_url`); no direct `boto3`.
+- **All file I/O goes through `fsd.storage`** (fsspec), so local disk, Azure Blob and S3 are config, not
+  code. The one exception: raster pixel reads use rasterio/GDAL. S3 access is generic (`s3fs`, any
+  `endpoint_url`); never `boto3` directly.
 - **Raster ops take and return `(data, profile)`**, so they chain as `sequence=[(func, kwargs), ...]`.
-- **Band math uses the 5-D contract** `(samples, timestamps, height, width, bands)` plus a
-  `band_indices` dict `{band_name: index}`.
-- **Catalog = GeoParquet** (`TileCatalog`); STAC is an additive export view. Datacube artifacts are
-  `datacube.npy` + `metadata.pickle.npy`. Nodata = 0.
-- **Calendar-interval mosaic is the default**: cubes over the same start/end/`mosaic_days` share an
-  identical `timestamps` axis, which `flatten` requires.
-- **No back-compat shims for the archive layout.** Old artifacts raise an error that names the fix.
-  On-disk format versions keep their supported lists.
-- **Geospatial principles.** Resample *to* a real reference image of known resolution (B08 = 10 m);
-  never trust the resampler to align to an abstract grid. `rasterio.merge` needs one CRS, so collapse
-  MGRS tiles into the max-mean-`area_contribution` zone before merging. Eyeball raster output in QGIS;
-  unit tests alone do not validate pixels.
-- **Terminology: never write a bare "tile".** An **MGRS tile** is the ~110 km source granule
-  (`T36PZT`, catalog column `mgrs_tile`); it is what we download and what the builder merges across.
-  A **grid cell** is the ~5 km S2-geometry subdivision of an ROI (`fsd.grid.roi_to_s2_grids`, id like
-  `165b09c`, column `id`); one grid cell = one inference datacube = one per-cell task.
-- **Docs:** keep the living docs true in the same PR as the code (`README.md`, `CONTRIBUTING.md`,
-  `ARCHITECTURE.md`, `CONTEXT.md`, `LIMITATIONS.md`, `ROADMAP.md`, `docs/`). Specs, ADRs and run-books
-  are point-in-time: never edit them after sign-off except by amendment (specs) or a superseding ADR.
-  `TODO #NN` in old text means GitHub issue #NN.
+- **Band math uses 5-D arrays** `(samples, timestamps, height, width, bands)` plus a `band_indices` dict
+  `{band_name: index}`.
+- **The catalog is GeoParquet** (`TileCatalog`); STAC is an extra export. A datacube is `datacube.npy` +
+  `metadata.pickle.npy`. Nodata is 0.
+- **Calendar-interval mosaics are the default.** Cubes with the same start, end and `mosaic_days` share
+  the same `timestamps` axis; `flatten` needs that.
+- **No compatibility shims for old archive layouts.** Old artifacts raise an error that says how to fix
+  them. On-disk format versions keep their lists of supported versions.
+- **A test that reads a Markdown file lives in `tests/test_docs.py` or `tests/test_notebooks.py`.** A
+  docs-only PR runs only those two test files.
+- **Geospatial rules.** Resample *to* a real reference image of known resolution (B08, 10 m); never trust
+  the resampler to line up with an abstract grid. `rasterio.merge` needs one CRS, so move all MGRS tiles
+  into the zone with the largest mean `area_contribution` before merging. Look at raster output in
+  QGIS; unit tests alone do not prove pixels are right.
+- **Never write a bare "tile".** An **MGRS tile** is the ~110 km source granule (`T36PZT`, catalog
+  column `mgrs_tile`); we download it, and the builder merges across MGRS tiles. A **grid cell** is the
+  ~5 km piece of an ROI from `fsd.grid.roi_to_s2_grids` (id like `165b09c`, column `id`). One grid cell =
+  one inference datacube = one per-cell task.
+- **Docs.** Keep the living docs true in the same PR as the code: `README.md`, `CONTRIBUTING.md`,
+  `ARCHITECTURE.md`, `CONTEXT.md`, `LIMITATIONS.md`, `ROADMAP.md`, `docs/`. Specs, ADRs and run-books
+  record a point in time: after sign-off, change a spec only by an amendment and an ADR only by a new
+  ADR that replaces it. `TODO #NN` in old text means GitHub issue #NN.
 
-## Optional agent method (not enforced; nobody can check how the work was produced)
+## How we work with agents (optional; nothing checks it)
 
-- **Spec flow.** Open the tracking issue; its number is the spec's number (`specs/NNN-<slug>.md`,
-  header `issue: "#NNN"` required from 102). Grill the design before writing it. An ADR lands in the
-  same PR as its spec, with the next sequential `docs/adr/NNNN-` number.
-- **Model split.** A stronger model for design, debugging and review; a cheaper one to implement
-  against a signed-off spec. Do not spawn subagents just to write code.
-- **Review without a relay (Claude Code only).** After pushing the branch and opening the PR, the implementing
-  session spawns the `pr-reviewer` subagent (`.claude/agents/pr-reviewer.md`: a stronger model, a fresh context,
-  no edit tools) with the PR number. Other agent tools, and people, get gate 3 the usual way. It posts its own review as a PR comment, which counts for gate 3.
-  Fix each finding in the PR or file it as an issue, push, then spawn it again to check the fixes. After
-  two rounds that still leave a **fix in PR** finding open, stop and hand the PR to the maintainer.
-  One reviewer per PR: do not add a review skill or more subagents on top. The second spawn checks only
-  the fixes since the commit it reviewed. To read a review, fetch only the latest one:
+- **Session start.** Read `gh pr list` (each PR description holds its state), then the open spec
+  tracking issue (or the pinned "Order of work" issue), then `gh issue list`. Tests must be green before
+  you start. Never write an expected test count anywhere.
+- **Specs.** Open the tracking issue first; the spec takes its number (`specs/NNN-<slug>.md`, header
+  `issue: "#NNN"`). Question the design hard before writing it. An ADR lands in the same PR as its spec,
+  with the next free `docs/adr/NNNN-` number.
+- **Which model does what.** A stronger model plans, debugs and reviews. A cheaper model writes the code,
+  against a signed-off spec.
+- **Writing the code (Claude Code).** After sign-off, the planning session spawns the `implementer`
+  agent (`.claude/agents/implementer.md`) with the spec sections, the branch and the PR number. That is
+  the only subagent that writes code. When it returns, the planning session spawns the reviewer
+  itself; the implementer cannot spawn agents. One run covers one PR. It ends when gates 1–3
+  hold; it never merges and never starts the next PR. Writing the code in a separate cheaper-model
+  session instead also works.
+- **Choosing the reviewer (Claude Code).** Spawn `pr-reviewer-small` when all three hold, otherwise
+  `pr-reviewer`:
+  - no contract change: the linked issue is not a spec's tracking issue, and the PR adds or changes no
+    spec or ADR;
+  - gate 4 does not apply;
+  - at most 400 changed lines in total
+    (`gh pr view <N> --json files --jq '[.files[] | .additions + .deletions] | add'`), and at most 200
+    under `src/` (same command with `select(.path | startswith("src/"))` before the sum).
+
+  Give the reviewer only the PR number. It posts its own review as a PR comment, which counts for gate 3.
+  Without Claude Code, get gate 3 from another session or a person.
+- **Acting on review findings.** Each finding has one label:
+  - **fix in PR**: the implementer fixes it (continue the same `implementer` with `SendMessage`, so it
+    keeps its context);
+  - **file as issue**: file it and link the PR;
+  - **needs diagnosis**: the reviewer saw a symptom but not its cause. The code writer does not guess.
+    The stronger model finds the cause (the planning session, or the maintainer in an Opus session), then
+    the fix goes in as for **fix in PR**.
+
+  Push, then spawn the same reviewer again; the second round checks only the fixes. After two rounds,
+  if a finding is still neither fixed nor filed, stop and hand the PR to the maintainer. One reviewer
+  per PR: no review skills or extra agents on top. To read a review, fetch only the latest:
   `gh pr view <N> --json comments --jq '[.comments[] | select(.body | startswith("## Gate-3 review"))][-1].body'`.
-- **Handoffs.** At a session boundary, write the state into the draft PR description (or the tracking
-  issue before a PR exists), then start a fresh session pointed at it. Do not rely on a compacted
-  context.
-- **Run-books.** A credentialed or visual check is handed over as a notebook (`runbooks/TEMPLATE.ipynb`):
-  Markdown says what each step does and what PASS means, plain `assert`s, no environment variables, a
-  Settings cell for every input, outputs cleared before commit (`tests/test_notebooks.py` enforces it).
-- **Session start.** Read `gh pr list` (work in flight; each PR description holds its state), then the
-  open spec tracking issue (or the pinned "Order of work" issue, once one exists), then `gh issue list`.
-  The tests must be green before you start; do not pin expected test counts anywhere.
+- **Handoffs.** When a session's context gets heavy, write the state into the draft PR description (or
+  the tracking issue if there is no PR yet), then start a fresh session pointed at it. Do not rely on a
+  compacted context.
+- **Run-books.** Hand over a credentialed or visual check as a notebook (copy `runbooks/TEMPLATE.ipynb`).
+  Markdown cells say what each step does and what PASS means; each PASS is a plain `assert`; no
+  environment variables (a Settings cell holds every input); commit with outputs cleared
+  (`tests/test_notebooks.py` checks this).

@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements a signed-off fsd spec or issue on an existing PR branch (spec 102 A4). Spawned by the planning session with the spec sections, the branch and the PR number; commits, pushes, keeps the PR description current and returns a short summary. Continued with SendMessage to fix review findings.
+description: Implements a signed-off fsd spec or issue on an existing PR branch. Spawned by the planning session with the spec sections, the branch and the PR number; commits, pushes, keeps the PR description current and returns a short summary. Continued with SendMessage to fix review findings.
 model: sonnet
 effort: medium
 disallowedTools: Agent
