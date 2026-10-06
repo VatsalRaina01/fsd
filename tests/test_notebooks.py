@@ -27,6 +27,9 @@ names its kernel, and it checks which `fsd` it imported.
 Synthetic and offline: this reads the checked-in JSON, it never runs a cell.
 """
 
+# Spec 102 A2.6: CI skips the rest of the suite on a docs-only PR but always runs this file. So a test
+# that reads a Markdown file belongs in tests/test_docs.py or tests/test_notebooks.py, nowhere else.
+
 from __future__ import annotations
 
 import json

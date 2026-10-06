@@ -2,6 +2,13 @@ name: CI
 
 # Spec 102 D4. One job; every extra installed so nothing skips for a missing package.
 # Required status check for `main` (the job id `test` is the check name).
+#
+# Docs-only PRs (spec 102 A2): the workflow still triggers on every PR, because a workflow
+# skipped by a path filter leaves its required check Pending and blocks merging. Instead the
+# `changes` step below sets `code=false` when every changed file is docs, and only the full
+# test suite is skipped (a job skipped by `if:` reports success).
+# RULE THAT KEEPS THIS SAFE: a test that reads a Markdown file lives in tests/test_docs.py or
+# tests/test_notebooks.py, the two files that always run.
 on:
   pull_request:
   push:
@@ -34,14 +41,38 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: pyproject.toml
+      - name: List changed files and decide whether the full suite runs
+        id: changes
+        # Everything except a pull_request defaults to code=true (push to main, the weekly run,
+        # workflow_dispatch), and so does a failure of the listing itself. Two-dot diff against
+        # the merge commit GitHub checked out; three-dot fails under a depth-1 fetch with
+        # "no merge base" (CPython bpo-40548).
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          echo "code=true" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "pull_request" ]; then
+            if git fetch origin "$BASE_REF" --depth=1 \
+               && git diff --name-only "origin/$BASE_REF.." > changed-files.txt \
+               && code=$(python scripts/ci_changed_paths.py < changed-files.txt); then
+              echo "code=$code" >> "$GITHUB_OUTPUT"
+            else
+              echo "::warning::listing changed files failed; running the full suite"
+            fi
+          fi
+          echo "full suite needed: $(grep '^code=' "$GITHUB_OUTPUT" | tail -1)"
       - name: Install fsd with every extra
         run: pip install -e ".[dev,local,s3,notebooks,grid,azure,aml,mpc,titiler,serving]" pytest-reportlog
       - name: Lint
         run: ruff check src/ tests/
-      - name: Tests (the `network` marker is opt-in, so it stays off)
-        run: pytest -q -rs --report-log=pytest-log.jsonl
+      - name: Docs guards (always run)
+        run: pytest -q tests/test_docs.py tests/test_notebooks.py
       - name: Docs call sites match live signatures
         run: python scripts/docs_kwarg_sweep.py
+      - name: Tests (the `network` marker is opt-in, so it stays off)
+        if: steps.changes.outputs.code == 'true'
+        run: pytest -q -rs --report-log=pytest-log.jsonl --ignore=tests/test_docs.py --ignore=tests/test_notebooks.py
       - name: Open an issue when the weekly run fails
         if: failure() && github.event_name == 'schedule'
         # Precedent: xarray's upstream-dev-ci.yaml (spec 102 section 7), which pins this same SHA.

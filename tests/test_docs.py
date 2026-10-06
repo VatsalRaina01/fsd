@@ -11,6 +11,9 @@ Implemented here:
 Assertions 2 and 3 (link resolution, README verb existence) belong to P5.
 """
 
+# Spec 102 A2.6: CI skips the rest of the suite on a docs-only PR but always runs this file. So a test
+# that reads a Markdown file belongs in tests/test_docs.py or tests/test_notebooks.py, nowhere else.
+
 from __future__ import annotations
 
 import ast
