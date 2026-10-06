@@ -699,7 +699,10 @@ to use it).
   tool, so it cannot spawn a reviewer or anything else. The reviewer is still a fresh context on a stronger
   model than the code's author (A1.1).
 - **A4.3** **Findings.** *Fix in PR*: the orchestrator continues the **same** implementer (`SendMessage`, which
-  keeps its history) with the finding. *File as issue*: the implementer files it. *Needs diagnosis*: the
+  keeps its history) with the finding. If it cannot be resumed (for example, `/model` started a new
+  orchestrator session, so its transcript is gone), the orchestrator spawns a fresh implementer with the
+  branch, the PR number and the command that fetches the latest review (user, 2026-10-06, after the #115
+  trial hit this). *File as issue*: the implementer files it. *Needs diagnosis*: the
   orchestrator diagnoses, writes the cause into the PR, and sends the fix to the implementer. Under A4 this
   replaces A3.4's "the maintainer switches to Opus". The orchestrator never writes the fix itself (that would be
   Opus paying for boilerplate). The two-round cap (A1.2) is unchanged.

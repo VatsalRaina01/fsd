@@ -48,7 +48,8 @@ Stop and return, instead of guessing, when:
 
 ## Review findings
 
-When the orchestrator continues you with findings from a `## Gate-3 review` comment: fix each **fix in
+When the orchestrator continues you with findings from a `## Gate-3 review` comment, or spawns you fresh
+with the PR number to fix them (read the latest review with the command in `AGENTS.md`): fix each **fix in
 PR** finding as its own commit; file each **file as issue** finding with `gh issue create`, linking the PR;
 for a **needs diagnosis** finding, apply the cause and fix the orchestrator gives you. Check, push, and
 update the PR description as above.

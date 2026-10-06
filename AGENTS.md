@@ -110,7 +110,8 @@ A PR merges when it passes four gates (details in `CONTRIBUTING.md`):
   Without Claude Code, get gate 3 from another session or a person.
 - **Acting on review findings.** Each finding has one label:
   - **fix in PR**: the implementer fixes it (continue the same `implementer` with `SendMessage`, so it
-    keeps its context);
+    keeps its context; if it cannot be resumed, spawn a fresh one with the branch, the PR number and the
+    review command below);
   - **file as issue**: file it and link the PR;
   - **needs diagnosis**: the reviewer saw a symptom but not its cause. The code writer does not guess.
     The stronger model finds the cause (the planning session, or the maintainer in an Opus session), then
