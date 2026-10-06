@@ -126,8 +126,9 @@ first (`fsd.collections.get(id)`). Four things break when a sentinel-2-l2a run i
 3. **`properties_filter` is required** when the declaration sets `mosaic_partition` with
    `partition_policy="raise"` (S1: one `sat:orbit_state` per window).
 4. **The feature sequence may stop making sense.** `fsd.bands.modify.compute_bands` knows only
-   optical indices (NDVI, SAVI, … on B02–B12). This is the one that can train a wrong model
-   instead of raising.
+   optical indices (NDVI, SAVI, … on B02–B12) and raises when their bands are missing. The silent
+   ones are `scale_bands` and `mask_invalid_and_interpolate` given a band list: they act only on
+   names they find, so S2 band names do nothing on an S1 cube and nothing raises.
 
 In a notebook or demo, derive every collection-dependent constant from one `COLLECTION` name in a
 single block, rather than editing literals in place.

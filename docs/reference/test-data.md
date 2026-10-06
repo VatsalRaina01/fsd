@@ -24,11 +24,13 @@ licences.
 **Read the bounds before you pair an ROI with labels.** A filename describes where the data came
 from, not where it is. Spec 58 D18 paired a file named `austria_eurocrops_…geojson` (it lies in
 Ethiopia) with an Austrian grid cell; the run-book would have produced no training data at all.
-One command catches it:
+Three lines catch it:
 
 ```python
-gpd.read_file(roi).total_bounds, gpd.read_file(labels).total_bounds
-int(labels_gdf.to_crs(cell_gdf.crs).intersects(cell_gdf.geometry.iloc[0]).sum())  # must be > 0
+import geopandas as gpd
+cell, labels = gpd.read_file("notebooks/shapefiles/s2grid=4772924.geojson"), gpd.read_file("notebooks/shapefiles/AT_2018_TRAIN.geojson")
+print(cell.total_bounds, labels.to_crs(cell.crs).total_bounds)                # do they overlap at all?
+print(int(labels.to_crs(cell.crs).intersects(cell.geometry.iloc[0]).sum()))   # must be > 0 (43 here)
 ```
 
 ## 3. Not in git: the Austria archive (real imagery)
