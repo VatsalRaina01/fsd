@@ -1,4 +1,10 @@
-"""Count prose lines and backward references per file under src/fsd."""
+"""Count prose lines and backward references per file under src/fsd.
+
+Usage: .venv/bin/python scripts/comment_refcount.py src/fsd   (or any subpackage)
+Prints refs / prose lines / code lines / prose-per-code per file, densest first, then a TOTAL.
+Needs Python >= 3.8 (`ast.Constant`); an older interpreter silently reports zero docstrings.
+The convention it audits: docs/reference/code-comments.md.
+"""
 import ast
 import io
 import re

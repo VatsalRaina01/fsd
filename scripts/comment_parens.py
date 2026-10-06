@@ -5,7 +5,7 @@ Only touches lines that tokenize/ast prove are comments or docstrings. Only remo
 parenthetical containing `#` — that is the GitHub issue mapping (CLAUDE.md: ~448
 `TODO #NN` refs, `TODO #47 == issue #47`).
 
-Usage: parens.py [--apply] <path> ...
+Usage: .venv/bin/python scripts/comment_parens.py [--apply] <path> ...
 """
 
 import ast

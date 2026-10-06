@@ -16,8 +16,18 @@ Serve one COG (e.g. `run_inference`'s `merged_filepath`) directly as pre-styled 
 discrete colormap and nearest-neighbor resampling for categorical output. This is the simplest
 integration and needs no database — good for a first look or a Bring-Your-Own-XYZ viewer slice.
 
-Fully worked: [`runbooks/29-tier1-stacnotator-byo.md`](../../runbooks/29-tier1-stacnotator-byo.md)
-(`.venv-titiler`, `demos/titiler_serve.py`; validated end-to-end against STACNotator's BYO-XYZ mode).
+```bash
+python3.11 -m venv .venv-titiler && .venv-titiler/bin/pip install -e ".[titiler]"
+.venv-titiler/bin/python -m demos.titiler_serve --merged <your run>/model_outputs/merged.tif
+# -> XYZ template: http://127.0.0.1:8000/cropmap/tiles/{z}/{x}/{y}.png
+curl -s -o /tmp/t.png -w '%{http_code} %{content_type}\n' \
+  http://127.0.0.1:8000/cropmap/tiles/13/4437/2823.png        # -> 200 image/png (Austria tile)
+```
+
+Check it in QGIS (Add Layer → Add XYZ Layer, paste the template): distinct class colours,
+transparent nodata, correctly placed. The same template URL works as a Bring-Your-Own-XYZ slice
+in STACNotator (validated end to end, spec 29).
+
 Two things that bite categorical rasters specifically: the colormap must stay **discrete** (a
 continuous ramp smears class boundaries), and resampling must be **nearest**, never bilinear.
 
@@ -28,13 +38,29 @@ MPC) rather than one flattened mosaic, load the STAC catalog into a **stock** pg
 stac-fastapi-pgstac + titiler-pgstac stack — the same shape MPC itself uses, so a tool built against
 MPC's API (like STACNotator) treats fsd's output as "just another MPC".
 
-Fully worked: [`runbooks/30-tier2-mini-mpc.md`](../../runbooks/30-tier2-mini-mpc.md) (Docker
-Compose stack in `demos/mini_mpc/`; loads `run_inference`'s STAC catalog + output COGs, proves a
-search → register → tile render round trip, and a QGIS/STACNotator visual check). Validated on the
-300-item Austria run: true (non-boxy) per-cell footprints render correctly through the full stack.
+The stack lives in `demos/mini_mpc/` (its `README.md` says what is borrowed and what is built
+locally, and why):
 
-**No Docker commands here or in that run-book are run by Claude** — Docker/Compose is handed to you
-to run yourself, same as any other run-book (spec 24).
+```bash
+cd demos/mini_mpc && cp -n .env.example .env && docker compose up --build -d && cd ../..
+python3.11 -m venv .venv-serving && .venv-serving/bin/pip install -e ".[dev,serving]"
+.venv-serving/bin/pip install "pypgstac[psycopg]==0.9.11" requests
+
+.venv-serving/bin/python demos/mini_mpc/load_pgstac.py \
+    --stac-dir <your run>/model_outputs/stac --outputs-dir <your run>/model_outputs/cells
+# --outputs-dir must match compose's FSD_OUTPUTS_DIR (the folder mounted at /data)
+
+.venv-serving/bin/python demos/mini_mpc/register_and_url.py
+# -> prints http://127.0.0.1:8082/searches/<id>/tiles/WebMercatorQuad/{z}/{x}/{y}.png?...
+```
+
+Paste the printed template into QGIS as an XYZ layer: real class colours and true (non-boxy)
+per-cell footprints. Validated on the 300-item Austria run. Tear down with `docker compose down`
+(keeps `./.pgdata`) or `docker compose down -v` (wipes it).
+
+To export the STAC catalog as stac-geoparquet instead:
+`.venv-serving/bin/python -m demos.mini_mpc.export_stac_geoparquet --stac-dir <your run>/model_outputs/stac`
+(writes `catalog.parquet` next to `catalog.json`).
 
 ## Which tier for you
 
