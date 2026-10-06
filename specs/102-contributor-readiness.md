@@ -544,3 +544,210 @@ for review".
   parameters: technical independence, managerial independence, and financial independence", plus each
   one's meaning (managerial: the IV&V effort sits in an organization separate from the implementers). The
   partial/partial/n-a mapping onto a subagent reviewer is this amendment's own judgement, not the source's.
+
+## Amendment A2 — docs-only PRs run only the docs guards (2026-10-06)
+
+**Status:** DRAFT, awaiting sign-off. Design in [#110](https://github.com/nikhilsrajan/fsd/issues/110);
+ordered before P3 by the maintainer on 2026-10-06 (#102). Signed off when the user merges the PR that adds it.
+
+**Problem.** Every PR runs the full suite (~5 min), including PRs that change only Markdown (e.g. #108).
+"No `.py` changed" does not mean "nothing to check": `tests/test_docs.py` checks links, spec `issue:`
+headers, ADR numbers and README `fsd.*(` calls; `tests/test_notebooks.py` holds the identifier guard over
+the living docs; `scripts/docs_kwarg_sweep.py` checks doc calls against live signatures. A docs-only PR needs
+those, not the other ~1000 tests. The obvious fix, `paths-ignore: ['**.md']` on the workflow, breaks merging:
+a workflow skipped by a path filter leaves its required check **Pending**, so every docs PR would be blocked.
+
+**Decision.** This changes what D2 gate 1 / D4 run for one class of PR; D4's text is not rewritten (D5).
+- **A2.1** `ci.yml` keeps triggering on every PR. A first step in the `test` job lists the PR's changed files
+  and sets `code=false` only if **every** one is docs: a `*.md` file anywhere, or a file named `LICENSE` or
+  `NOTICE`. Anything else (`.github/`, `pyproject.toml`, `scripts/`, `runbooks/*.ipynb`, a new file type) sets
+  `code=true`. It is an allowlist of what is safe to skip, so an unknown file runs everything.
+- **A2.2** The required check keeps its name, `test`, and always runs install, ruff,
+  `pytest tests/test_docs.py tests/test_notebooks.py` and `docs_kwarg_sweep.py`. The rest of the suite is a
+  step with `if: … code == 'true'`. The job always runs, so the check never sits at Pending.
+- **A2.3** `push` to `main`, the weekly `schedule` and `workflow_dispatch` always set `code=true`, as does a
+  failure of the listing step itself. A misclassified PR is caught at merge or within a week.
+- **A2.4** Listing method (CPython's, below): `git fetch origin "$GITHUB_BASE_REF" --depth=1`, then two-dot
+  `git diff --name-only --no-renames "origin/$GITHUB_BASE_REF.."` against the merge commit GitHub checks out.
+  Not three-dot: with a depth-1 fetch it fails with "no merge base". `--no-renames` because a rename lists only
+  its new name, so `git mv src/x.py docs/x.md` would look docs-only.
+- **A2.5** The classification is a short script (`scripts/ci_changed_paths.py`: file names on stdin, prints
+  `true`/`false`) so it gets a table test, not an untested regex in YAML.
+- **A2.6** The rule that keeps A2 safe: **a test that reads a Markdown file lives in `tests/test_docs.py` or
+  `tests/test_notebooks.py`.** A comment in `ci.yml` and in each of those two files says so. (Checked
+  2026-10-06: no other test reads a committed `.md`; `test_build_fixture.py` reads only a README it generates.)
+
+**Prior art (D9).** Not homemade. **CPython, bpo-40548 (May 2020):** "Always run GitHub action, even on doc
+PRs" (`4e363761fc`, GH-19981), then "skip jobs on doc only PRs" (`75d7257b20`, GH-19983). Its `build.yml`
+(at `v3.10.0`) carries the reason ("`paths-ignore` is not used to skip documentation-only PRs, because it
+prevents to mark a job as mandatory"), a `check_source` job that diffs and greps for any non-docs path, and the
+two-dot vs three-dot lesson A2.4 adopts. The third-party alternative, `dorny/paths-filter` (v1.0.0, 2020-05-21),
+also predates 2022-11-30; it is not used, to avoid one more pinned action for a ten-line check.
+
+**How to verify.**
+- `pytest tests/test_ci_changed_paths.py`: `docs/x.md`, `README.md`, `tests/manual/x.md`, `LICENSE` → `false`;
+  `src/fsd/api.py`, `.github/workflows/ci.yml`, `pyproject.toml`, `runbooks/x.ipynb`, a mixed list, an empty
+  list → `true`.
+- The A2 PR itself edits `ci.yml`, so it runs the full suite (visible in its CI log).
+- Real-run evidence (gate 4 for CI): the first docs-only PR after merge shows the full-suite step **skipped**,
+  `test` green, the PR mergeable, and a run time under ~2 min. Its link goes in #110 before that issue closes.
+
+**Out of scope.** Making the full suite faster (#109). Splitting into several required checks. Skipping ruff
+or the install on docs PRs (the sweep imports fsd).
+
+**Sources (per-source credit).**
+- **GitHub docs, "Troubleshooting required status checks"**
+  (<https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/troubleshooting-required-status-checks>):
+  a workflow skipped by path filtering leaves its checks "in a 'Pending' state and block merging", while a job
+  skipped by a conditional "reports 'Success'". Why A2.1 keeps the trigger and A2.2 skips a step instead.
+- **CPython `build.yml` at `v3.10.0`** (<https://github.com/python/cpython/blob/v3.10.0/.github/workflows/build.yml>)
+  and commits `4e363761fc` / `75d7257b20` (bpo-40548): the whole pattern (diff inside the job, a docs-only
+  allowlist, non-PR events always run) and the two-dot diff under a shallow fetch.
+- **`dorny/paths-filter` releases** (<https://github.com/dorny/paths-filter/releases/tag/v1.0.0>): the date that
+  shows the action route also predates the cutoff (weighed, not used).
+
+## Amendment A3 — a lighter reviewer for small PRs, and a "needs diagnosis" label (2026-10-06)
+
+**Status:** DRAFT, awaiting sign-off. Decided by the maintainer on 2026-10-06 (#102, row 1 of the P3 plan).
+Signed off when the user merges the PR that adds it. Builds on A1.
+
+**Problem.** A1 runs every review at `effort: high`, including a 30-line bug fix, so small PRs pay
+large-PR review cost. Separately, a reviewer has two labels, **fix in PR** and **file as issue**. A finding
+whose cause the reviewer could not pin down then reaches the implementing session (usually the cheaper
+model) as an instruction to fix, and that session guesses.
+
+**Decision.**
+- **A3.1** A second agent file, `.claude/agents/pr-reviewer-small.md`: `model: opus`, `effort: medium`, the
+  same `disallowedTools` as `pr-reviewer`. Two files because `effort` is set only in frontmatter; the Agent
+  tool can override `model` per spawn, not `effort`. Its body runs the three checks below first, then says
+  "read `.claude/agents/pr-reviewer.md` and follow its body from `## Inputs` on, with this header", so the
+  review brief has one home (ADR 0025) and the two files cannot drift.
+- **A3.2** A PR is **small** when all three hold:
+  (a) **no contract change**: the linked issue is not a spec's tracking issue, and the PR adds or amends no
+  spec or ADR;
+  (b) **gate 4 does not apply**: no real data, cloud or pixels;
+  (c) **≤ 400 changed lines** (additions + deletions) in total, and **≤ 200 under `src/`**:
+  `gh pr view <N> --json files --jq '[.files[] | .additions + .deletions] | add'`, and the same with
+  `select(.path | startswith("src/"))` before the sum. (`gh pr diff` has no `--stat` flag.)
+  The implementing session checks these to choose the agent. `pr-reviewer-small` re-checks them before
+  reviewing; if one fails it posts one comment headed `## Gate-3 not started: not small`, names the failed
+  check, says "respawn `pr-reviewer`", and stops. That header does not start with `## Gate-3 review`, so it
+  does not count as a round.
+- **A3.3** Round 2 uses the same agent as round 1. Its re-check covers only the fix diff, so a PR whose fixes
+  push it past the thresholds is still re-checked at the round-1 effort.
+- **A3.4** A third finding label, **needs diagnosis**, in `pr-reviewer.md` (and so in both agents): the
+  reviewer saw a symptom (a failing test, behaviour that contradicts the spec) but could not pin the cause.
+  The implementing session does **not** attempt it; it stops and says so in the PR. The maintainer debugs and
+  fixes it in a stronger-model session (for the user: Opus, `/effort high`), and the reviewer's round 2 checks
+  that fix. The two-round cap (A1.2) is unchanged and counts the same rounds.
+- **A3.5** Where it lives: `AGENTS.md` "How we work with agents", bullets "Choosing the reviewer" (which agent
+  to spawn, the three checks) and "Acting on review findings" (the three labels). These bullets replace the
+  section A1.2 called "Review without a relay" (see A4.7). `CONTRIBUTING.md` is unchanged: per A1.3 the
+  human-facing gates do not name the subagents.
+
+**Prior art (D9).** The thresholds are anchored on published review data; the rule that maps PR size to
+reviewer effort is **homemade**. SmartBear's Cisco case study found defect-finding best when one review covers
+200–400 lines of code, falling off above that. That data is about human reviewers; A3 assumes, without
+evidence, that the same size band is a fair cut for an agent's effort level. Searched: SmartBear's study and
+its best-practices summary. I found no pre-2022 source on sizing an *automated* reviewer's effort, and claim none.
+
+**How to verify.**
+- The next PR that passes A3.2 has a comment headed `## Gate-3 review (pr-reviewer-small subagent, fresh
+  context)`. The round lookup in `pr-reviewer.md` (`startswith("## Gate-3 review (pr-reviewer")`) matches both
+  agents' headers, so round 2 finds round 1 whichever agent wrote it.
+- Spawning `pr-reviewer-small` on a PR over 400 changed lines yields only the `## Gate-3 not started: not small`
+  comment.
+- `git check-ignore .claude/agents/pr-reviewer-small.md` prints nothing (the file is tracked).
+
+**Out of scope.** A Sonnet reviewer (A1.1 requires a stronger model than the implementer). Choosing the agent
+by a hook or CI. Changing the two-round cap.
+
+**Outside the repo (the user applies this, as in §8).** The workspace `CLAUDE.md` "Models and effort" bullet
+says "Review follows `fsd/AGENTS.md` and the agent files in `fsd/.claude/agents/`" instead of restating the
+flow, so A3 needs no edit there.
+
+**Sources (per-source credit).**
+- **SmartBear, "Best practices for peer code review"**
+  (<https://smartbear.com/learn/code-review/best-practices-for-peer-code-review/>) and the **Cisco case study**
+  (<https://static1.smartbear.co/support/media/resources/cc/book/code-review-cisco-case-study.pdf>): review
+  200–400 LOC at a time, since defect-finding drops beyond that. The source of A3.2(c)'s 400; the 200 for `src/`
+  is the band's lower edge, this amendment's own choice.
+- **Claude Code docs, "Subagents"** (<https://code.claude.com/docs/en/sub-agents>, already cited in A1): `effort`
+  is a frontmatter field; the Agent tool's per-spawn override covers `model` only. Why A3.1 needs two files.
+
+## Amendment A4 — the planning session spawns a Sonnet implementer (2026-10-06)
+
+**Status:** DRAFT, awaiting sign-off. Requested by the user 2026-10-06 ("fold A4 into #115"). Signed off when
+the user merges the PR that adds it. Builds on A1 and A3.
+
+**Problem.** The model split (Opus plans, Sonnet implements) currently costs a session boundary per PR: the
+planning session writes a handoff, the user runs `/handoff`, starts a fresh session, sets model and effort,
+points it at the PR, and later relays "needs diagnosis" findings back to Opus. A1 removed the user as the
+message bus for review; implementation still has it. The rule that blocks the obvious fix, "Do not spawn
+subagents just to write code" (`AGENTS.md` before this PR), assumed a subagent costs more than a session. Both start cold,
+and a subagent's tool output stays out of the planner's context, which is the constraint that matters.
+
+**Decision.** Optional method, like A1 (A1.3 applies: `CONTRIBUTING.md` is unchanged and nobody is required
+to use it).
+- **A4.1** A committed agent file `.claude/agents/implementer.md`: `model: sonnet`, `effort: medium`,
+  `disallowedTools: Agent`. After the spec (or, for non-spec work, the issue) is signed off, the planning
+  session may spawn it with the spec, the branch and the PR number instead of handing off to a new session.
+  `AGENTS.md` drops "Do not spawn subagents just to write code"; its "Writing the code (Claude Code)" bullet
+  says the `implementer` "is the only subagent that writes code".
+- **A4.2** **Flat, not nested.** The planning session (the *orchestrator*) spawns the implementer, waits for it
+  to return, then spawns `pr-reviewer` or `pr-reviewer-small` (A3.2) itself. The implementer has no `Agent`
+  tool, so it cannot spawn a reviewer or anything else. The reviewer is still a fresh context on a stronger
+  model than the code's author (A1.1).
+- **A4.3** **Findings.** *Fix in PR*: the orchestrator continues the **same** implementer (`SendMessage`, which
+  keeps its history) with the finding. If it cannot be resumed (for example, `/model` started a new
+  orchestrator session, so its transcript is gone), the orchestrator spawns a fresh implementer with the
+  branch, the PR number and the command that fetches the latest review (user, 2026-10-06, after the #115
+  trial hit this). *File as issue*: the implementer files it. *Needs diagnosis*: the
+  orchestrator diagnoses, writes the cause into the PR, and sends the fix to the implementer. Under A4 this
+  replaces A3.4's "the maintainer switches to Opus". The orchestrator never writes the fix itself (that would be
+  Opus paying for boilerplate). The two-round cap (A1.2) is unchanged.
+- **A4.4** **Hard stops.** One orchestration run = one PR. It ends when gates 1–3 hold, or at A1.2's cap, and
+  returns to the user. The orchestrator never merges and never starts the next PR (the user's merge is the
+  checkpoint between phases). Gate 4 runs stay with the user (`AGENTS.md` rule 1).
+- **A4.5** **The implementer's brief.** It works on the given branch in the orchestrator's worktree (the
+  orchestrator does not edit while it runs); follows `AGENTS.md`; keeps the PR description current (done /
+  next); commits with a `Co-Authored-By` line naming its own model; returns a summary of a few lines. Subagents
+  cannot ask the user questions, so an ambiguity in the spec comes back to the orchestrator, which asks the user.
+- **A4.6** The handoff protocol (spec 24 D6) still applies when the orchestrator's own context gets heavy.
+- **A4.7** **Deviation in the trial (user, 2026-10-06).** At the user's request the orchestrator also rewrote
+  `AGENTS.md` and the agent files in plain language, with no spec or amendment references (commit `6122b65`).
+  That rewrite carries the reviewer choice and the three labels (A3.5), the implementer flow (A4.1), the A2
+  gate-1 wording and the A2.6 test rule, and the `needs diagnosis` label in `pr-reviewer.md` (A3.4). It
+  replaces the `AGENTS.md` section A1.2 names, "Review without a relay", with the "Choosing the reviewer" and
+  "Acting on review findings" bullets; A1's rules are unchanged. The orchestrator also writes spec text
+  answering review findings, since the spec is the planning session's work, not the implementer's.
+
+**Prior art (D9).** **Homemade.** Searched: Baker's Chief Programmer Team (IBM Systems Journal 11(1), 1972,
+doi:10.1147/sj.111.0056) as the nearest human model of one lead plus implementers. It is a team structure built
+around one lead programmer, not a rule for handing implementation to a cheaper worker under a fixed brief, so it
+is not cited as precedent. I found no pre-2022 source for orchestrating model-based coding agents, and claim none.
+
+**How to verify.**
+- #115 is the trial: after sign-off, the A2 + A3 + A4 implementation is written by the `implementer` agent. Its
+  commits carry a `Co-Authored-By` line naming a Sonnet model, the orchestrator's commits touch only the spec,
+  `.claude/agents/implementer.md`, and the files A4.7 lists, and the PR description records how many rounds it
+  took.
+- `git check-ignore .claude/agents/implementer.md` prints nothing (the file is tracked).
+- `implementer.md`'s frontmatter has `disallowedTools` including `Agent`.
+
+**Out of scope.** Nested agents (implementer → reviewer). Auto-merge. Chaining PRs or phases in one run. A
+CI-run or hook-run implementer (A1's reasons apply).
+
+**Outside the repo (the user applies this, as in §8).** Applied 2026-10-06. Workspace `CLAUDE.md`, "Models
+and effort": "Normally that is the `implementer` agent, which the Opus session spawns after sign-off".
+"Handoffs": "Going from plan to code needs no handoff when the `implementer` agent writes the code".
+
+**Sources (per-source credit).**
+- **Claude Code docs, "Subagents"** (<https://code.claude.com/docs/en/sub-agents>): `model` accepts the `sonnet`
+  alias and `effort` overrides the session level (A4.1); "by default, a subagent can spawn subagents of its own,
+  up to three layers below the main conversation", which is why A4.2 removes `Agent` rather than relying on a
+  default; `SendMessage` resumes a subagent and "resumed subagents retain their full conversation history" (A4.3);
+  `AskUserQuestion` is removed from every subagent (A4.5); "background subagents surface every permission prompt
+  in your main session", so the user still answers permission prompts while the implementer runs.
+- **F. T. Baker, "Chief programmer team management of production programming"**, IBM Systems Journal 11(1):56–73
+  (1972), doi:10.1147/sj.111.0056: searched as a candidate precedent and not used (see Prior art).
