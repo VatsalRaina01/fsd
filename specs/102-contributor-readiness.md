@@ -757,11 +757,12 @@ and effort": "Normally that is the `implementer` agent, which the Opus session s
 **Status:** DRAFT, awaiting sign-off. Decided by the maintainer on 2026-10-06 (P4 planning, #102). Signed off
 when the user merges the PR that adds it.
 
-**Problem.** AC15 (§5) and the P4 row of §4 say "release `v0.1.0`". A `v0.1.0` tag already exists (commit
+**Problem.** AC15 (§5), the P4 row of §4 and D15 say the first release is `v0.1.0`. A `v0.1.0` tag already exists (commit
 `8d1b875`, 2026-09-04) with no GitHub release on it, so that name is taken by a commit that predates this spec.
 
-**Decision.** AC15 and the P4 row read **`v0.2.0`**; their text is not rewritten (D5). This is D15's own rule, not
-a new one: `breaking` bumps `y`, and PR #107 (labelled `breaking`, merged 2026-10-05) is the first such PR
+**Decision.** AC15, the P4 row and D15's last sentence ("The first release is `v0.1.0`, after this spec lands")
+read **`v0.2.0`**; their text is not rewritten (D5). The number follows the bump rule earlier in D15:
+`breaking` bumps `y`, and PR #107 (labelled `breaking`, merged 2026-10-05) is the first such PR
 after `v0.1.0`. The `v0.1.0` tag stays as it is, with no release added to it.
 
 **Prior art (D9).** None needed: the number comes from D15, whose source is SemVer 2.0.0 §4 (cited in §10).
