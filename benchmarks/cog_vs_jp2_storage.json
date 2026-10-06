@@ -5,7 +5,7 @@
     "n_products": 192,
     "window_start": "2018-01-02",
     "window_cutoff": "2018-05-02",
-    "cog_catalog": "/Users/nikhilsrajan/NASA-Harvest/project/fetch_satdata_claude/satellite_benchmark_cog/sentinel-2-l2a/catalog.parquet"
+    "cog_catalog": "satellite_benchmark_cog/sentinel-2-l2a/catalog.parquet"
   },
   "storage": {
     "per_band": {

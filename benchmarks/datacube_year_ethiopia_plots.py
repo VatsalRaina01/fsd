@@ -2,6 +2,7 @@
 season (May-Oct); stats/build cover the full year."""
 # ruff: noqa: E702  (compact `a; b` plotting lines are intentional here)
 import json
+from pathlib import Path
 
 import matplotlib
 import numpy as np
@@ -10,7 +11,7 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = "/Users/nikhilsrajan/NASA-Harvest/project/fetch_satdata_claude"
+ROOT = str(Path(__file__).resolve().parents[2])  # workspace root: the folder holding fsd/ and the archives
 OUT = f"{ROOT}/fsd/tests/outputs/datacube_fullyear"
 
 

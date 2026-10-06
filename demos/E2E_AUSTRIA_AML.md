@@ -433,7 +433,7 @@ export AZ_ML_WORKSPACE='<aml workspace>'
 export AZ_CLUSTER='<the d16 cluster name>'
 export AZ_UAMI_CLIENT_ID="$(az identity show -g "$AZ_RG" -n '<compute identity name>' --query clientId -o tsv)"
 
-export AZ_ROOT="abfss://<filesystem>@<storage account>.dfs.core.windows.net/nsasiraj/fsd-p40-demo"
+export AZ_ROOT="abfss://<filesystem>@<storage account>.dfs.core.windows.net/<your-user>/fsd-p40-demo"
 
 export AZ_ENV_NAME='fsd-aml-env'                 # general-purpose: download + build + flatten
 export AZ_ENV_VERSION='<version>'
