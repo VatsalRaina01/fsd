@@ -163,6 +163,25 @@ dict; nodata is 0; cubes over one start/end/`mosaic_days` share an identical `ti
 - **Raster output is checked by eye in QGIS.** Unit tests do not prove pixels are right; a change
   to raster code ships with an inspectable output (gate 4 in `CONTRIBUTING.md`).
 
+**Approaches tried and reverted** (each will look like a good idea again):
+
+- **The `InvalidBlockList` write retry** (`storage/fs.py`, reverted 2026-07-28, #57 → #58). It
+  retried writes that looked like a transient Azure block-commit race. The real cause was duplicate
+  work-unit ids making 16 threads write one blob, which is deterministic, so every writer retried
+  into every other and a fast, legible failure became a minutes-long error storm. The fix was to
+  refuse duplicate ids at the source (`create_datacube.setup`). No transient race has been seen on
+  distinct blobs. If one ever is, retry only on Azure storage error codes, never on adlfs's
+  `"Failed to upload block"` prefix: a catch-all `except Exception` produces it, so auth failures
+  wear it too.
+- **A config file inside the checkout** (`env.example.sh` + `notebooks/_config.py`, retired by spec
+  54, #78). Only a checkout could reach it, so a `pip install` consumer could not, and a project-local
+  file is where someone eventually commits a live storage URL. Replaced by
+  `~/.config/fsd/config.toml` + `fsd init`.
+- **A checked-in image build folder** (`notebooks/images/` + `.last_registered.json`, retired by
+  spec 56, #79). Same shape: only a checkout could build the image, and nobody else could answer
+  "what was this image built from?". Replaced by `fsd.image.ImageDefinition`, a digest of the
+  resolved fsd reference, and `fsd.image.registry`.
+
 ## 5. The three modes
 
 | mode | who does what | state |

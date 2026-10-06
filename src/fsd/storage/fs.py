@@ -55,7 +55,7 @@ __all__ = [
     "SOURCE_PATH_ATTRS_KEY",
 ]
 
-# Writes here are deliberately not retried: see DROPPED.md, "the InvalidBlockList write
+# Writes here are deliberately not retried: see ARCHITECTURE.md §4, "the InvalidBlockList write
 # retry". Retrying a deterministic id collision buries the real cause (#58).
 
 # The upstream pandas/geopandas convention for JSON-encoding `.attrs` into the Parquet

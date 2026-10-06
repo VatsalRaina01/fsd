@@ -2,7 +2,7 @@
 
 Discovery is the **CDSE STAC API** (`pystac-client`, anonymous — no credentials):
 each STAC item's `assets` already carry the per-band S3 `href`s, so we never list a
-`.SAFE` over S3 (that recursive listing was the flaky path — see BUGS.md BUG-001).
+`.SAFE` over S3 (that recursive listing was the flaky path: BUG-001, ADR 0009).
 The only S3-authenticated operation is the byte `transfer` of each band file, done
 through the generic, provider-agnostic transport in `fsd.storage` (no direct boto3).
 
@@ -406,9 +406,9 @@ def _select_item_files(
     return selected
 
 
-# CDSE S3 auth errors that are transient (permanent on real AWS) — see BUGS.md
-# BUG-001. Retryable ONLY because this is the CDSE-specific source: on CDSE these are
-# transient (node-inconsistency roulette), whereas on real AWS they'd be permanent.
+# CDSE S3 auth errors that are transient (permanent on real AWS): BUG-001, in BUGS.md at
+# tag docs-archive-2026. Retryable ONLY because this is the CDSE-specific source: on CDSE
+# these are transient (node-inconsistency roulette), whereas on real AWS they'd be permanent.
 # `Forbidden`/403 and `InvalidAccessKeyId` have both been observed at scale here; retrying
 # re-rolls onto a possibly-good node, so they are included.
 _RETRYABLE_S3 = (

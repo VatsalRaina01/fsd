@@ -12,7 +12,7 @@ looser norms.
 > **Cut the changelog. Keep the hazard.**
 
 A comment that says *what changed, when, and in which spec* is a worse version of `git log`,
-`CHANGES.md` and `specs/` — all of which are still there, and are the right place for it.
+the PR that made the change, and `specs/` — all of which are still there, and are the right place for it.
 
 A comment that says *what breaks if you undo this* cannot be recovered from any of them, because
 by the time someone undoes it they have already stopped looking.
@@ -91,17 +91,17 @@ Put it in the living doc that already exists for it, and leave a pointer of at m
 
 | the story | where it goes |
 |---|---|
-| a capability that was removed | `DROPPED.md` |
-| behaviour kept but changed | `CHANGES.md` |
-| an approach evaluated and rejected | the spec's *Alternatives considered* |
-| a command or script worth reusing | `RECIPES.md` |
+| a capability that was removed | a `LIMITATIONS.md` row (the *why* lives in its ADR or spec) |
+| behaviour kept but changed | the PR title (it becomes the release-note line) |
+| an approach evaluated and rejected | the spec's *Alternatives considered*, or `ARCHITECTURE.md` §4 if it was built and reverted |
+| a command or script worth reusing | a `docs/howto/` page, or `scripts/` with a docstring |
 | deferred work | a GitHub issue |
 
 ```python
 # ❌ 15 lines in fs.py explaining a retry helper that was removed and why it never worked
 
 # ✅
-# No write retry here: see DROPPED.md, "the InvalidBlockList retry". Retrying a
+# No write retry here: see ARCHITECTURE.md §4, "the InvalidBlockList retry". Retrying a
 # deterministic id collision turns a legible failure into an error storm.
 ```
 
@@ -114,6 +114,15 @@ A trim is correct when:
 - the file's behaviour is untouched — a comment pass must never change code, and `pytest -q` plus
   `ruff check` are run to prove it;
 - the diff is comments-only, so it can be reviewed by reading the removals alone.
+
+Three tools (each docstring says how to run it):
+
+- `scripts/comment_refcount.py src/fsd` — prose lines and backward references per file, densest first;
+- `scripts/comment_parens.py [--apply] src/fsd` — removes reference-only parentheticals
+  (`(spec 50)`, `(D4)`) from comments and docstrings; never one that holds a `#`;
+- `scripts/comment_astcheck.py <git-ref> src/fsd` — proves the diff is comments-only by comparing
+  docstring-stripped ASTs. **Run it on every comment pass**: in #85 it caught three "comment" edits
+  that were inside a `raise ValueError(...)` and an argparse `help=`.
 
 Target after a pass: **~0.30 prose lines per code line**, down from 0.49. That is a guide, not a
 quota — `storage/fs.py` is a thin seam over fsspec whose whole value is knowing which backend
