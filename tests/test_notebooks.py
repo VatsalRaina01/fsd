@@ -136,7 +136,8 @@ def test_file_carries_no_identifiers(what, pattern, folder, name):
 # The email and cluster-name patterns are left out here: this scope is mostly prose, and they flag
 # `fs@account.dfs...` (a URL shape) and the word "cluster-loadable".
 _SCOPE_GLOBS = (
-    "benchmarks/**/*", "demos/**/*", "src/**/*", "docs/howto/**/*", "docs/reference/**/*",
+    "benchmarks/**/*", "demos/**/*", "scripts/**/*", "src/**/*", "docs/howto/**/*",
+    "docs/reference/**/*",
 )
 _SCOPE_FILES = (
     "README.md", "CONTRIBUTING.md", "AGENTS.md", "ARCHITECTURE.md", "CONTEXT.md",
@@ -152,6 +153,13 @@ _SCOPE_PATTERNS = {
         "a concrete resource group or workspace name",
     )
 }
+# A literal first path segment after a blob host is a personal prefix (D13): committed blob paths
+# keep the account and container but use a placeholder such as `<your-user>` for the prefix. Names
+# nobody, so it needs no owner-specific value. Scope files only: the notebook guard above allows
+# blob paths wholesale (user, 2026-09-29) and `test_the_demo_notebook_blob_prefix...` pins that cell.
+_SCOPE_PATTERNS["a personal blob prefix (literal path segment after the blob host)"] = (
+    r"\.(?:dfs|blob)\.core\.windows\.net/[A-Za-z0-9_-]+/"
+)
 
 
 def _scope_files(root: Path) -> list[Path]:
@@ -190,6 +198,14 @@ def test_the_scope_guard_catches_a_planted_home_path(tmp_path):
     (tmp_path / "benchmarks" / "ok.md").write_text("see `/Users/…/project` for the layout\n")
     found = _scope_offenders(tmp_path)
     assert len(found) == 1 and found[0].startswith("benchmarks/run.py")
+
+
+def test_the_scope_guard_catches_a_planted_blob_prefix(tmp_path):
+    (tmp_path / "demos").mkdir()
+    (tmp_path / "demos" / "bad.md").write_text('AZ_ROOT="abfss://data@acct.dfs.core.windows.net/someone/run"\n')
+    (tmp_path / "demos" / "ok.md").write_text('AZ_ROOT="abfss://data@acct.dfs.core.windows.net/<your-user>/run"\n')
+    found = _scope_offenders(tmp_path)
+    assert len(found) == 1 and found[0].startswith("demos/bad.md")
 
 
 def test_the_demo_notebook_blob_prefix_is_a_placeholder_that_fails_if_forgotten():
