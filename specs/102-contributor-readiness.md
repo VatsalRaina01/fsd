@@ -568,8 +568,9 @@ a workflow skipped by a path filter leaves its required check **Pending**, so ev
 - **A2.3** `push` to `main`, the weekly `schedule` and `workflow_dispatch` always set `code=true`, as does a
   failure of the listing step itself. A misclassified PR is caught at merge or within a week.
 - **A2.4** Listing method (CPython's, below): `git fetch origin "$GITHUB_BASE_REF" --depth=1`, then two-dot
-  `git diff --name-only "origin/$GITHUB_BASE_REF.."` against the merge commit GitHub checks out. Not
-  three-dot: with a depth-1 fetch it fails with "no merge base".
+  `git diff --name-only --no-renames "origin/$GITHUB_BASE_REF.."` against the merge commit GitHub checks out.
+  Not three-dot: with a depth-1 fetch it fails with "no merge base". `--no-renames` because a rename lists only
+  its new name, so `git mv src/x.py docs/x.md` would look docs-only.
 - **A2.5** The classification is a short script (`scripts/ci_changed_paths.py`: file names on stdin, prints
   `true`/`false`) so it gets a table test, not an untested regex in YAML.
 - **A2.6** The rule that keeps A2 safe: **a test that reads a Markdown file lives in `tests/test_docs.py` or
@@ -641,7 +642,8 @@ model) as an instruction to fix, and that session guesses.
   that fix. The two-round cap (A1.2) is unchanged and counts the same rounds.
 - **A3.5** Where it lives: `AGENTS.md` "How we work with agents", bullets "Choosing the reviewer" (which agent
   to spawn, the three checks) and "Acting on review findings" (the three labels). These bullets replace the
-  section A1.2 called "Review without a relay" (see A4.7). `CONTRIBUTING.md` is unchanged: per A1.3 the human-facing gates do not name the subagents.
+  section A1.2 called "Review without a relay" (see A4.7). `CONTRIBUTING.md` is unchanged: per A1.3 the
+  human-facing gates do not name the subagents.
 
 **Prior art (D9).** The thresholds are anchored on published review data; the rule that maps PR size to
 reviewer effort is **homemade**. SmartBear's Cisco case study found defect-finding best when one review covers
