@@ -33,6 +33,8 @@ The PR title becomes the release-note line. The maintainer labels and merges (me
 - Keep the living docs true in the same PR (`README.md`, `ARCHITECTURE.md`, `CONTEXT.md`,
   `LIMITATIONS.md`, `ROADMAP.md`, `docs/`). Specs, ADRs and run-books are point-in-time.
 - `TODO #NN` in old text = GitHub issue #NN. File deferred work as an issue.
+- Docs removed in spec 102 (the progress log and its archive, the changelog, recipes, the dropped,
+  bug and TODO lists, finished run-books) are readable at tag `docs-archive-2026`.
 - Call a MGRS tile (the ~110 km source granule) and a grid cell (the ~5 km ROI subdivision) by those
   names; never a bare "tile". See `CONTEXT.md`.
 
@@ -74,8 +76,8 @@ Each line points at the incident that taught it.
   `while read -r v; do git ls-files -z | xargs -0 grep -lF "$v"; done < <your-values-file>`.
   Replace a hit with a placeholder (`st<proj>`) and describe the value, never spell it, even when
   writing up the leak. A pushed leak stays in history unless it is rewritten.
-- **Orders of work:** milestones plus one pinned "Order of work" issue replace the old progress log
-  (create and pin it in spec 102 P3; until then the open spec tracking issue holds the order).
+- **Order of work:** one pinned issue ([#125](https://github.com/nikhilsrajan/fsd/issues/125)) holds
+  the order; each piece of work keeps its own state in its PR description or issue.
 
 ## Maintainer handover
 

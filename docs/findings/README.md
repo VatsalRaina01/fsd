@@ -1,7 +1,7 @@
 # Findings — index
 
 > **Why this folder:** a *finding* is a measurement write-up — what was measured, on what date,
-> by what method, and what it means. These used to live as multi-page cells inside `TODO.md`'s
+> by what method, and what it means. These used to live as multi-page cells inside the old TODO file's
 > table, where nobody would read them (spec 41 §1.1, D14 P3).
 >
 > Findings are **point-in-time** (spec 41 D3 / ADR 0022): a measurement was true on a date.
@@ -19,7 +19,7 @@
 | [RSLEARN_COMPARISON.md](RSLEARN_COMPARISON.md) | 2026-07-06, **historical** | — | Should fsd use AllenAI's rslearn instead of its own pipeline? Replaced by `spike/RSLEARN_SPIKE_REPORT.md` (§6.4 is the decision): fsd keeps its own downloads. |
 
 The first two were measured from the same two runs, by the same free, read-only recovery method
-(`runbooks/41-recover-aml-job-timings.md`) — no cluster time was spent to produce either.
+(run-book `41-recover-aml-job-timings` (tag `docs-archive-2026`)) — no cluster time was spent to produce either.
 
 **`consumer-repo-friction.md` is the exception to the point-in-time rule above:** it is an *open
 log*, appended to as phase 2's consumer repo is built, because that friction is phase 2's

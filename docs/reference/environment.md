@@ -144,7 +144,7 @@ prefix from run-book 34.
 | `AZ_INFER_ENV_NAME` | inference environment — fsd + the adapter's **deps** only (since spec 44 it carries no adapter source; bundles do) | fixed: `fsd-infer-env` | — |
 | `AZ_ENV_VERSION` | **query, never guess** | `az ml environment list … --query '[0].version'` | `echo "$AZ_ENV_VERSION"` — a number, not an error string |
 | `AZ_INFER_ENV_VERSION` | same, for the inference env | same | `echo "$AZ_INFER_ENV_VERSION"` |
-| `AZ_INFER_BUILD_CONTEXT` | folder holding the fsd wheel the inference image is built from; lets `runbooks/scripts/45_phase1_generic_image_smoke.py` refuse an image built from a pre-spec-44 wheel (specs/44) | e.g. `notebooks/demo_model` | `ls "$AZ_INFER_BUILD_CONTEXT"/fsd-*.whl` |
+| `AZ_INFER_BUILD_CONTEXT` | folder holding the fsd wheel the inference image is built from; pass it as `fsd.model.verify_image(build_context=...)` to refuse an image built from a pre-spec-44 wheel | e.g. `notebooks/demo_model` | `ls "$AZ_INFER_BUILD_CONTEXT"/fsd-*.whl` |
 | `AZ_ROI` | run-book 45 Phase 2: ROI geojson to infer over | default `../shapefiles/s2grid=476da24.geojson` | `ls "$AZ_ROI"` |
 | `AZ_OUT_SUFFIX` | run-book 45 Phase 2: pin the run id; default is a fresh UTC timestamp (issue #66) | usually unset | — |
 | `AZ_MERGE` | run-book 45 Phase 2: set to `1` to also build the merged crop map | usually unset | — |
@@ -218,4 +218,4 @@ before you spend.**
   (five required + two optional registries; `root` is not one of them — spec 55 D1)
 - `AZURE_INFRA_PRIVATE.md` (workspace root, uncommitted) — the concrete values
 - [`AZURE_INFRA.md`](AZURE_INFRA.md) — the scrubbed public description of the platform
-- `runbooks/README.md` — which run-book needs which of these
+- the run-books that used these variables are at tag `docs-archive-2026` (spec 102 P3c)

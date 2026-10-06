@@ -24,8 +24,8 @@ values are handed to you privately (`AZURE_INFRA_PRIVATE.md`, never public), not
   storage account — ask your platform admin for these by name.
 - **Two AML Environments already built**: a general-purpose one (download + build + flatten) and
   an inference one (carries your model bundle). Building one is a 10–20 minute ACR build — do this
-  ahead of a long unattended run, not during it. See `runbooks/36-aml-runner.md` /
-  `runbooks/38-inference-on-aml.md` for how they're built.
+  ahead of a long unattended run, not during it. See [`build-the-images.md`](build-the-images.md) for how
+  they're built.
 - The five required values `fsd init` asks for (plus the two optional registry keys), or the
   `AZ_*` environment variables that override them. **Your storage root is not among them** — it
   is a per-run argument you pass, not config (spec 55 D1) — see

@@ -7,7 +7,7 @@ summary: How fsd got the shape it has — eight eras, each named by the question
 
 **What this is.** The *why*. Every other document here answers "what was decided" (`../specs/`,
 `adr/`), "what is true now" ([`../ARCHITECTURE.md`](../ARCHITECTURE.md)), or "what changed"
-([`../CHANGES.md`](../CHANGES.md)). This one answers **what happened** — and in particular the
+([`CHANGES.md` at tag `docs-archive-2026`](https://github.com/nikhilsrajan/fsd/blob/docs-archive-2026/CHANGES.md)). This one answers **what happened** — and in particular the
 things the other registers structurally cannot hold: the roads not taken. An
 [ADR](adr/0025-one-fact-one-home.md) records a decision *made*, in active voice. The fork examined
 for a week and declined has no row anywhere else.
@@ -275,7 +275,7 @@ had to survive a migration to GitHub Issues, the choice was **to force the issue
 rather than rewrite the references** ([ADR 0024](adr/0024-todo-migrates-to-issues-with-forced-number-alignment.md)) —
 because rewriting them would mean editing 30 point-in-time documents. `PROGRESS.md` was split
 **3,691 → 93 lines**, with 61 entries moved verbatim into
-[`progress-archive.md`](progress-archive.md) — moved, because deferring the history document made
+[`progress-archive.md`](https://github.com/nikhilsrajan/fsd/blob/docs-archive-2026/docs/progress-archive.md) — moved, because deferring the history document made
 that log the primary source for a spec not yet written. This one.
 
 **The measurement that justified the whole era arrived as a defect in its own output.** The
@@ -461,5 +461,5 @@ What is *not* met, stated plainly because a history that only records wins is a 
 
 The registers all remain: [`../specs/`](../specs/README.md) for what was designed,
 [`adr/`](adr/README.md) for what was decided, [`findings/`](findings/README.md) for what was
-measured, [`progress-archive.md`](progress-archive.md) for the day-by-day. This file is the thread
+measured, [`progress-archive.md`](https://github.com/nikhilsrajan/fsd/blob/docs-archive-2026/docs/progress-archive.md) for the day-by-day. This file is the thread
 through them, and it ends here until the next era does.
