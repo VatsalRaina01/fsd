@@ -544,3 +544,130 @@ for review".
   parameters: technical independence, managerial independence, and financial independence", plus each
   one's meaning (managerial: the IV&V effort sits in an organization separate from the implementers). The
   partial/partial/n-a mapping onto a subagent reviewer is this amendment's own judgement, not the source's.
+
+## Amendment A2 — docs-only PRs run only the docs guards (2026-10-06)
+
+**Status:** DRAFT, awaiting sign-off. Design in [#110](https://github.com/nikhilsrajan/fsd/issues/110);
+ordered before P3 by the maintainer on 2026-10-06 (#102). Signed off when the user merges the PR that adds it.
+
+**Problem.** Every PR runs the full suite (~5 min), including PRs that change only Markdown (e.g. #108).
+"No `.py` changed" does not mean "nothing to check": `tests/test_docs.py` checks links, spec `issue:`
+headers, ADR numbers and README `fsd.*(` calls; `tests/test_notebooks.py` holds the identifier guard over
+the living docs; `scripts/docs_kwarg_sweep.py` checks doc calls against live signatures. A docs-only PR needs
+those, not the other ~1000 tests. The obvious fix, `paths-ignore: ['**.md']` on the workflow, breaks merging:
+a workflow skipped by a path filter leaves its required check **Pending**, so every docs PR would be blocked.
+
+**Decision.** This changes what D2 gate 1 / D4 run for one class of PR; D4's text is not rewritten (D5).
+- **A2.1** `ci.yml` keeps triggering on every PR. A first step in the `test` job lists the PR's changed files
+  and sets `code=false` only if **every** one is docs: a `*.md` file anywhere, or a file named `LICENSE` or
+  `NOTICE`. Anything else (`.github/`, `pyproject.toml`, `scripts/`, `runbooks/*.ipynb`, a new file type) sets
+  `code=true`. It is an allowlist of what is safe to skip, so an unknown file runs everything.
+- **A2.2** The required check keeps its name, `test`, and always runs install, ruff,
+  `pytest tests/test_docs.py tests/test_notebooks.py` and `docs_kwarg_sweep.py`. The rest of the suite is a
+  step with `if: … code == 'true'`. The job always runs, so the check never sits at Pending.
+- **A2.3** `push` to `main`, the weekly `schedule` and `workflow_dispatch` always set `code=true`, as does a
+  failure of the listing step itself. A misclassified PR is caught at merge or within a week.
+- **A2.4** Listing method (CPython's, below): `git fetch origin "$GITHUB_BASE_REF" --depth=1`, then two-dot
+  `git diff --name-only "origin/$GITHUB_BASE_REF.."` against the merge commit GitHub checks out. Not
+  three-dot: with a depth-1 fetch it fails with "no merge base".
+- **A2.5** The classification is a short script (`scripts/ci_changed_paths.py`: file names on stdin, prints
+  `true`/`false`) so it gets a table test, not an untested regex in YAML.
+- **A2.6** The rule that keeps A2 safe: **a test that reads a Markdown file lives in `tests/test_docs.py` or
+  `tests/test_notebooks.py`.** A comment in `ci.yml` and in each of those two files says so. (Checked
+  2026-10-06: no other test reads a committed `.md`; `test_build_fixture.py` reads only a README it generates.)
+
+**Prior art (D9).** Not homemade. **CPython, bpo-40548 (May 2020):** "Always run GitHub action, even on doc
+PRs" (`4e363761fc`, GH-19981), then "skip jobs on doc only PRs" (`75d7257b20`, GH-19983). Its `build.yml`
+(at `v3.10.0`) carries the reason ("`paths-ignore` is not used to skip documentation-only PRs, because it
+prevents to mark a job as mandatory"), a `check_source` job that diffs and greps for any non-docs path, and the
+two-dot vs three-dot lesson A2.4 adopts. The third-party alternative, `dorny/paths-filter` (v1.0.0, 2020-05-21),
+also predates 2022-11-30; it is not used, to avoid one more pinned action for a ten-line check.
+
+**How to verify.**
+- `pytest tests/test_ci_changed_paths.py`: `docs/x.md`, `README.md`, `tests/manual/x.md`, `LICENSE` → `false`;
+  `src/fsd/api.py`, `.github/workflows/ci.yml`, `pyproject.toml`, `runbooks/x.ipynb`, a mixed list, an empty
+  list → `true`.
+- The A2 PR itself edits `ci.yml`, so it runs the full suite (visible in its CI log).
+- Real-run evidence (gate 4 for CI): the first docs-only PR after merge shows the full-suite step **skipped**,
+  `test` green, the PR mergeable, and a run time under ~2 min. Its link goes in #110 before that issue closes.
+
+**Out of scope.** Making the full suite faster (#109). Splitting into several required checks. Skipping ruff
+or the install on docs PRs (the sweep imports fsd).
+
+**Sources (per-source credit).**
+- **GitHub docs, "Troubleshooting required status checks"**
+  (<https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/defining-the-mergeability-of-pull-requests/troubleshooting-required-status-checks>):
+  a workflow skipped by path filtering leaves its checks "in a 'Pending' state and block merging", while a job
+  skipped by a conditional "reports 'Success'". Why A2.1 keeps the trigger and A2.2 skips a step instead.
+- **CPython `build.yml` at `v3.10.0`** (<https://github.com/python/cpython/blob/v3.10.0/.github/workflows/build.yml>)
+  and commits `4e363761fc` / `75d7257b20` (bpo-40548): the whole pattern (diff inside the job, a docs-only
+  allowlist, non-PR events always run) and the two-dot diff under a shallow fetch.
+- **`dorny/paths-filter` releases** (<https://github.com/dorny/paths-filter/releases/tag/v1.0.0>): the date that
+  shows the action route also predates the cutoff (weighed, not used).
+
+## Amendment A3 — a lighter reviewer for small PRs, and a "needs diagnosis" label (2026-10-06)
+
+**Status:** DRAFT, awaiting sign-off. Decided by the maintainer on 2026-10-06 (#102, row 1 of the P3 plan).
+Signed off when the user merges the PR that adds it. Builds on A1.
+
+**Problem.** A1 runs every review at `effort: high`, including a 30-line bug fix, so small PRs pay
+large-PR review cost. Separately, a reviewer has two labels, **fix in PR** and **file as issue**. A finding
+whose cause the reviewer could not pin down then reaches the implementing session (usually the cheaper
+model) as an instruction to fix, and that session guesses.
+
+**Decision.**
+- **A3.1** A second agent file, `.claude/agents/pr-reviewer-small.md`: `model: opus`, `effort: medium`, the
+  same `disallowedTools` as `pr-reviewer`. Two files because `effort` is set only in frontmatter; the Agent
+  tool can override `model` per spawn, not `effort`. Its body runs the three checks below first, then says
+  "read `.claude/agents/pr-reviewer.md` and follow its body from `## Inputs` on, with this header", so the
+  review brief has one home (ADR 0025) and the two files cannot drift.
+- **A3.2** A PR is **small** when all three hold:
+  (a) **no contract change**: the linked issue is not a spec's tracking issue, and the PR adds or amends no
+  spec or ADR;
+  (b) **gate 4 does not apply**: no real data, cloud or pixels;
+  (c) **≤ 400 changed lines** (additions + deletions) in total, and **≤ 200 under `src/`**:
+  `gh pr view <N> --json files --jq '[.files[] | .additions + .deletions] | add'`, and the same with
+  `select(.path | startswith("src/"))` before the sum. (`gh pr diff` has no `--stat` flag.)
+  The implementing session checks these to choose the agent. `pr-reviewer-small` re-checks them before
+  reviewing; if one fails it posts one comment headed `## Gate-3 not started: not small`, names the failed
+  check, says "respawn `pr-reviewer`", and stops. That header does not start with `## Gate-3 review`, so it
+  does not count as a round.
+- **A3.3** Round 2 uses the same agent as round 1. Its re-check covers only the fix diff, so a PR whose fixes
+  push it past the thresholds is still re-checked at the round-1 effort.
+- **A3.4** A third finding label, **needs diagnosis**, in `pr-reviewer.md` (and so in both agents): the
+  reviewer saw a symptom (a failing test, behaviour that contradicts the spec) but could not pin the cause.
+  The implementing session does **not** attempt it; it stops and says so in the PR. The maintainer debugs and
+  fixes it in a stronger-model session (for the user: Opus, `/effort high`), and the reviewer's round 2 checks
+  that fix. The two-round cap (A1.2) is unchanged and counts the same rounds.
+- **A3.5** Where it lives: `AGENTS.md` "Review without a relay" (which agent to spawn, the three checks, the
+  three labels). `CONTRIBUTING.md` is unchanged: per A1.3 the human-facing gates do not name the subagents.
+
+**Prior art (D9).** The thresholds are anchored on published review data; the rule that maps PR size to
+reviewer effort is **homemade**. SmartBear's Cisco case study found defect-finding best when one review covers
+200–400 lines of code, falling off above that. That data is about human reviewers; A3 assumes, without
+evidence, that the same size band is a fair cut for an agent's effort level. Searched: SmartBear's study and
+its best-practices summary. I found no pre-2022 source on sizing an *automated* reviewer's effort, and claim none.
+
+**How to verify.**
+- The next PR that passes A3.2 has a comment headed `## Gate-3 review (pr-reviewer-small subagent, fresh
+  context)`. The round lookup in `pr-reviewer.md` (`startswith("## Gate-3 review (pr-reviewer")`) matches both
+  agents' headers, so round 2 finds round 1 whichever agent wrote it.
+- Spawning `pr-reviewer-small` on a PR over 400 changed lines yields only the `## Gate-3 not started: not small`
+  comment.
+- `git check-ignore .claude/agents/pr-reviewer-small.md` prints nothing (the file is tracked).
+
+**Out of scope.** A Sonnet reviewer (A1.1 requires a stronger model than the implementer). Choosing the agent
+by a hook or CI. Changing the two-round cap.
+
+**Outside the repo (the user applies this, as in §8).** The workspace `CLAUDE.md` "Model split & effort" bullet
+now points review at `AGENTS.md` "Review without a relay" and `.claude/agents/` instead of restating it, so A3
+needs no further edit there.
+
+**Sources (per-source credit).**
+- **SmartBear, "Best practices for peer code review"**
+  (<https://smartbear.com/learn/code-review/best-practices-for-peer-code-review/>) and the **Cisco case study**
+  (<https://static1.smartbear.co/support/media/resources/cc/book/code-review-cisco-case-study.pdf>): review
+  200–400 LOC at a time, since defect-finding drops beyond that. The source of A3.2(c)'s 400; the 200 for `src/`
+  is the band's lower edge, this amendment's own choice.
+- **Claude Code docs, "Subagents"** (<https://code.claude.com/docs/en/sub-agents>, already cited in A1): `effort`
+  is a frontmatter field; the Agent tool's per-spawn override covers `model` only. Why A3.1 needs two files.
