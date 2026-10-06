@@ -9,6 +9,7 @@ import platform
 import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -19,7 +20,7 @@ from fsd.bands import modify
 from fsd.catalog.catalog import TileCatalog
 from fsd.datacube import builder, ops
 
-ROOT = "/Users/nikhilsrajan/NASA-Harvest/project/fetch_satdata_claude"
+ROOT = str(Path(__file__).resolve().parents[2])  # workspace root: the folder holding fsd/ and the archives
 CATALOG = f"{ROOT}/satellite_benchmark/sentinel-2-l2a/catalog.parquet"
 ROI = f"{ROOT}/shapefiles/s2grid=165bca4.geojson"
 OUT = f"{ROOT}/fsd/tests/outputs/datacube_fullyear"

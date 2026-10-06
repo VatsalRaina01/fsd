@@ -128,6 +128,94 @@ def test_file_carries_no_identifiers(what, pattern, folder, name):
     )
 
 
+# --- Spec 102 D13: the same guard over the runnable and living files outside the notebooks ------
+#
+# Point-in-time records (specs, ADRs, run-books, `docs/*archive*`, `docs/findings/`) truthfully
+# say where a run happened and stay as written. Everything below is either run by a contributor
+# or read as current, so it must hold no home path, GUID or concrete resource-group/workspace name.
+# The email and cluster-name patterns are left out here: this scope is mostly prose, and they flag
+# `fs@account.dfs...` (a URL shape) and the word "cluster-loadable".
+_SCOPE_GLOBS = (
+    "benchmarks/**/*", "demos/**/*", "scripts/**/*", "src/**/*", "docs/howto/**/*",
+    "docs/reference/**/*",
+)
+_SCOPE_FILES = (
+    "README.md", "CONTRIBUTING.md", "AGENTS.md", "ARCHITECTURE.md", "CONTEXT.md",
+    "LIMITATIONS.md", "ROADMAP.md", "docs/tutorial.md", "docs/adding-a-source.md",
+    "docs/history.md",
+)
+_SCOPE_SUFFIXES = {".py", ".md", ".json", ".sh", ".toml", ".txt", ".yml", ".yaml", ".ipynb"}
+_SCOPE_PATTERNS = {
+    what: _FORBIDDEN[what]
+    for what in (
+        "a local home directory",
+        "an Azure GUID (subscription / tenant / client id)",
+        "a concrete resource group or workspace name",
+    )
+}
+# A literal first path segment after a blob host is a personal prefix (D13): committed blob paths
+# keep the account and container but use a placeholder such as `<your-user>` for the prefix. Names
+# nobody, so it needs no owner-specific value. Scope files only: the notebook guard above allows
+# blob paths wholesale (user, 2026-09-29) and `test_the_demo_notebook_blob_prefix...` pins that cell.
+_SCOPE_PATTERNS["a personal blob prefix (literal path segment after the blob host)"] = (
+    r"\.(?:dfs|blob)\.core\.windows\.net/[A-Za-z0-9_-]+/"
+)
+
+
+def _scope_files(root: Path) -> list[Path]:
+    files = {
+        p for g in _SCOPE_GLOBS for p in root.glob(g)
+        if p.is_file() and p.suffix in _SCOPE_SUFFIXES
+    }
+    files |= {root / f for f in _SCOPE_FILES if (root / f).is_file()}
+    return sorted(files)
+
+
+def _scope_offenders(root: Path) -> list[str]:
+    out = []
+    for path in _scope_files(root):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for what, pattern in _SCOPE_PATTERNS.items():
+            hits = sorted(set(re.findall(pattern, text)))
+            if hits:
+                out.append(f"{path.relative_to(root)}: {what}: {hits}")
+    return out
+
+
+def test_runnable_and_living_files_carry_no_identifiers():
+    offenders = _scope_offenders(REPO_ROOT)
+    assert not offenders, (
+        "These files hardcode an identifier. Use a path relative to the repo "
+        "(`Path(__file__).resolve().parents[N]`) or a placeholder such as `<your-user>`:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_the_scope_guard_catches_a_planted_home_path(tmp_path):
+    """AC9: a planted absolute home path in `benchmarks/` fails the guard; an elided one is fine."""
+    (tmp_path / "benchmarks").mkdir()
+    (tmp_path / "benchmarks" / "run.py").write_text('ROOT = "/Users/someone/work"\n')
+    (tmp_path / "benchmarks" / "ok.md").write_text("see `/Users/…/project` for the layout\n")
+    found = _scope_offenders(tmp_path)
+    assert len(found) == 1 and found[0].startswith("benchmarks/run.py")
+
+
+def test_the_scope_guard_catches_a_planted_blob_prefix(tmp_path):
+    (tmp_path / "demos").mkdir()
+    (tmp_path / "demos" / "bad.md").write_text('AZ_ROOT="abfss://data@acct.dfs.core.windows.net/someone/run"\n')
+    (tmp_path / "demos" / "ok.md").write_text('AZ_ROOT="abfss://data@acct.dfs.core.windows.net/<your-user>/run"\n')
+    found = _scope_offenders(tmp_path)
+    assert len(found) == 1 and found[0].startswith("demos/bad.md")
+
+
+def test_the_demo_notebook_blob_prefix_is_a_placeholder_that_fails_if_forgotten():
+    """D13 (placeholder-only rule): the guard cannot name the owner's prefix without committing it,
+    so the runnable Settings cell holds `<your-user>` and asserts it was replaced."""
+    src = "".join("".join(c["source"]) for c in _cells("e2e_austria_aml.ipynb") if c["cell_type"] == "code")
+    assert re.search(r'AZ_ROOT = "abfss://[^"]*/<your-user>/', src)
+    assert 'assert "<" not in AZ_ROOT' in src
+
+
 def test_blob_paths_are_allowed_but_identifiers_are_not():
     """Blob paths may be committed (user, 2026-09-29) -- and `abfss://container@account...`
     is shaped like an email, which is how the email pattern used to flag every one of them.

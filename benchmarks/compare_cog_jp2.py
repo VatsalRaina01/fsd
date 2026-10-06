@@ -14,10 +14,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 
 from fsd.storage import fs
 
-ROOT = "/Users/nikhilsrajan/NASA-Harvest/project/fetch_satdata_claude"
+ROOT = str(Path(__file__).resolve().parents[2])  # workspace root: the folder holding fsd/ and the archives
 BENCH = f"{ROOT}/fsd/benchmarks"
 STORAGE_JSON = f"{BENCH}/cog_vs_jp2_storage.json"
 REPORT = f"{BENCH}/cog_vs_jp2_report.md"

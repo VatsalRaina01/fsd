@@ -32,6 +32,7 @@ import multiprocessing as mp
 import os
 import shutil
 import time
+from pathlib import Path
 
 import geopandas as gpd
 import rasterio
@@ -40,7 +41,7 @@ import rasterio.windows
 from fsd.raster.cog import to_cog
 from fsd.storage import fs
 
-ROOT = "/Users/nikhilsrajan/NASA-Harvest/project/fetch_satdata_claude"
+ROOT = str(Path(__file__).resolve().parents[2])  # workspace root: the folder holding fsd/ and the archives
 CATALOG = f"{ROOT}/satellite_benchmark/sentinel-2-l2a/catalog.parquet"
 GROWTH_FACTOR = 0.70   # measured: COG+overviews ~= 1.70x JP2 -> net +0.70x
 FLOOR_GIB = 8.0        # abort before free disk drops below this

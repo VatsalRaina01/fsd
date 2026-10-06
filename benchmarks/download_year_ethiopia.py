@@ -8,11 +8,12 @@ Writes a stats JSON next to this file; the .md report is composed from it.
 import datetime
 import json
 import os
+from pathlib import Path
 
 from fsd.catalog.catalog import TileCatalog
 from fsd.sources import cdse
 
-WS = "/Users/nikhilsrajan/NASA-Harvest/project/fetch_satdata_claude"
+WS = str(Path(__file__).resolve().parents[2])  # workspace root: the folder holding fsd/ and the archives
 ROI = f"{WS}/shapefiles/s2grid=165bca4.geojson"
 # Dedicated benchmark tree so the real `satellite/` data stays unpolluted.
 ROOT = f"{WS}/satellite_benchmark/sentinel-2-l2a"

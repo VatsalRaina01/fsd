@@ -21,6 +21,7 @@ import multiprocessing as mp
 import os
 import shutil
 import time
+from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
@@ -30,7 +31,7 @@ import rasterio
 from fsd.raster.cog import to_cog
 from fsd.storage import fs
 
-ROOT = "/Users/nikhilsrajan/NASA-Harvest/project/fetch_satdata_claude"
+ROOT = str(Path(__file__).resolve().parents[2])  # workspace root: the folder holding fsd/ and the archives
 JP2_ROOT_NAME = "satellite_benchmark"
 COG_ROOT_NAME = "satellite_benchmark_cog"
 JP2_CATALOG = f"{ROOT}/{JP2_ROOT_NAME}/sentinel-2-l2a/catalog.parquet"
@@ -317,7 +318,7 @@ def main(argv=None):
     summary = summarize_storage(by_band)
     meta = {"run_utc": datetime.datetime.utcnow().isoformat() + "Z", "months": args.months,
             "n_products": int(len(sub)), "window_start": str(first.date()),
-            "window_cutoff": str(cutoff.date()), "cog_catalog": COG_CATALOG}
+            "window_cutoff": str(cutoff.date()), "cog_catalog": os.path.relpath(COG_CATALOG, ROOT)}
     _write_storage_report(summary, meta)
     print("[done] " + json.dumps({"cog_ratio": summary["cog_ratio"],
                                   "ovr_delta_pct": summary["overview_delta_pct"]}))
