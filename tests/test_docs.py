@@ -591,6 +591,13 @@ def test_deleted_docs_stay_deleted():
 
 def test_living_docs_do_not_point_at_deleted_docs():
     living = [p for p in _docs_with_links() if p.name != "history.md"]
+    # Runnable demos print these pointers at users, and their READMEs are maintained. The demo
+    # write-ups (`demos/*.md` other than READMEs) are point-in-time and exempt.
+    demos = REPO_ROOT / "demos"
+    living += sorted(
+        p for p in demos.rglob("*")
+        if p.is_file() and (p.suffix in (".py", ".yml", ".yaml") or p.name == "README.md")
+    )
     problems = []
     for p in living:
         problems += _deleted_doc_problems(

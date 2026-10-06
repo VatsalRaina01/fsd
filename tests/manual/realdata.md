@@ -3,7 +3,7 @@
 Validates `fsd.raster.images` and `fsd.bands.modify` against a **real** locally
 downloaded Sentinel-2 L2A tile, with the outputs inspected **visually in QGIS**
 (LLMs are unreliable on GeoTIFFs, so green unit tests are not enough — see
-`../../TODO.md` #8). Unit tests (`tests/test_raster.py`, `tests/test_bands.py`)
+issue #8). Unit tests (`tests/test_raster.py`, `tests/test_bands.py`)
 cover the logic; this guide proves it works on genuine tile bytes, real CRS, real
 nodata.
 

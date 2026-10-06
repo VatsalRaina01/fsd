@@ -2,7 +2,7 @@
 
 Validates `fsd.datacube.builder.build_datacube` against the **real, multi-CRS**
 `satellite_benchmark/` tiles, with the output inspected **visually in QGIS** (LLMs
-are unreliable on GeoTIFFs, so green unit tests are not enough — see `../../TODO.md`
+are unreliable on GeoTIFFs, so green unit tests are not enough — see issue
 #8). Unit tests (`tests/test_datacube_*.py`) cover the logic on synthetic tiles; this
 guide proves it on genuine bytes, real CRS, real nodata — and specifically that the
 **single-CRS merge** + **reference-image resampling** behave on data that straddles a
@@ -181,8 +181,8 @@ Open the three GeoTIFFs (all in `dst_crs` EPSG:32636). Confirm each geospatial g
       the slice is non-zero).
 - [ ] **Multi-tile same-acquisition merge (spec 20)** — since spec 20, when several tiles
       of the *same* acquisition cover the shape (it straddles an MGRS tile boundary), **all**
-      are merged onto the reference grid (was: one kept → interior nodata holes; `BUGS.md`
-      BUG-002). Re-run this cube post-fix and confirm coverage did **not** drop and any prior
+      are merged onto the reference grid (was: one kept → interior nodata holes; BUG-002, in `BUGS.md`
+      at tag `docs-archive-2026`). Re-run this cube post-fix and confirm coverage did **not** drop and any prior
       interior holes are gone. The hardest stress case is a **tile-row-boundary corner** (4
       tiles/acquisition) — exercised by the spec-19 demo (`demos/`, grid `165b09c`: 0.6 % → 82.8 %).
 - [x] **Reference-image resampling** — in `165bca4_FCC_8bit.tif` the three bands are
