@@ -516,3 +516,12 @@ def test_issue_header_check_red_cases():
     assert _issue_header_problem(102, {"issue": '"#102"'}) is None
     assert "no `issue:` header" in _issue_header_problem(103, {})
     assert "must be" in _issue_header_problem(104, {"issue": '"#103"'})
+
+
+@pytest.mark.parametrize("notice", ["notebooks/shapefiles/NOTICE", "tests/data/tutorial/NOTICE"])
+def test_eurocrops_notices_carry_licence_and_citation(notice):
+    """Spec 102 D14/AC10: data derived from EuroCrops is CC BY 4.0 and must be credited."""
+    text = (REPO_ROOT / notice).read_text(encoding="utf-8")
+    assert "CC BY 4.0" in text
+    assert "doi:10.5281/zenodo.7851838" in text
+    assert "NOT been reconciled" not in text

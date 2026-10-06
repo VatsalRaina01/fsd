@@ -11,10 +11,11 @@ AT_2018_TRAIN.geojson
   harmonises national parcel declarations — for Austria, the INVEKOS/AMA data — onto a common
   crop taxonomy. Sampled and reprojected for this repository; not the upstream dataset.
 
-  The upstream licence has NOT been reconciled with this repository's MIT licence. Treat this
-  file as carrying EuroCrops' terms rather than fsd's until that is settled, and do not
-  redistribute it as if it were MIT. (Tracked in PROGRESS.md: "its licensing is unresolved for
-  a public MIT repo.")
+  Licence: CC BY 4.0, not fsd's MIT. The code in this repository is MIT; data derived from
+  EuroCrops is CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Reuse it with
+  attribution and a note that it was modified (sampled, reprojected, attributes reduced).
+  Suggested citation: Schneider, M., Chan, A., & Körner, M. (2023). EuroCrops: A Pan-European
+  crop dataset. Zenodo. doi:10.5281/zenodo.7851838.
 
 AT_ROI.geojson
 s2grid=476da24.geojson
@@ -27,7 +28,7 @@ s2grid=4772924.geojson
 
     476da24  — south-east of Vienna (16.034–16.116 °E, 48.106–48.156 °N). Imagery only:
                it lies 47.7 km outside AT_ROI, and the nearest AT_2018_TRAIN field is
-               50.2 km away, so ZERO labels fall in it. Use it for single-tile imagery
+               50.2 km away, so ZERO labels fall in it. Use it for single-MGRS-tile imagery
                tests (download, datacube, CRS) that need no labels.
     4772924  — in the Waldviertel (15.390–15.472 °E, 48.482–48.532 °N), inside AT_ROI.
                43 AT_2018_TRAIN fields fall in it across 7 crop classes, and the Austria
