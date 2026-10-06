@@ -53,7 +53,7 @@
 | 39 | [training-data-on-aml.md](39-training-data-on-aml.md) | current | yes | `tests/test_training_data_aml.py` |
 | 40 | [e2e-aml-demo-script.md](40-e2e-aml-demo-script.md) | current | yes | `tests/test_e2e_aml_demo_helpers.py`, `tests/test_plot_aml_timings.py`, `tests/test_restamp_cli.py`; ADR 0021 |
 | 41 | [docs-refactor.md](41-docs-refactor.md) | current | yes (P1–P7; P6 = spec 42, P8 = spec 43) | `tests/test_docs.py`; ADRs 0022–0026; merge `e144d27` (P7) |
-| 42 | [tutorial-fixture.md](42-tutorial-fixture.md) | current | yes | `tests/data/tutorial/`, `tests/test_tutorial_fixture.py`, `tests/test_build_fixture.py`; merge `2bdc4c6` |
+| 42 | [tutorial-fixture.md](42-tutorial-fixture.md) | current | yes | `tests/data/tutorial/`, `tests/test_tutorial_fixture.py`, `tests/test_build_fixture.py`; commits `2bdc4c6` (P6 step 1), `38eefed` (the fixture) |
 | 43 | [history.md](43-history.md) | current | yes | `docs/history.md`; ADR 0027; merge `675a1c7` (closes #55) |
 | 44 | [bundle-carried-adapter-code.md](44-bundle-carried-adapter-code.md) | current | phase 1 yes; phase 2 (D7/D8) superseded by spec 51 | `tests/test_bundle_code.py`; merge `9881c1e` |
 | 45 | [bundle-transparency-and-image-verification.md](45-bundle-transparency-and-image-verification.md) | current | yes | `tests/test_bundle_transparency.py`, `src/fsd/model/verify_image.py`; merge `20b6009` |
@@ -62,7 +62,7 @@
 | 48 | [verify-adapter.md](48-verify-adapter.md) | current | yes | `tests/test_verify_adapter.py`; merge `c0d9d17` |
 | 49 | [skip-work-already-done.md](49-skip-work-already-done.md) | current | yes | `tests/test_build_skip.py`, `tests/test_flatten_skip.py`; merge `c0d9d17` |
 | 50 | [backward-walk.md](50-backward-walk.md) | current | steps 0/1/2/4 yes; step 3 (D9) waits on #84 | `tests/test_backward_walk.py`; merge `1876c16` |
-| 51 | [deploy-model-registry.md](51-deploy-model-registry.md) | current | yes (§9 steps 0–3) | `tests/test_registry.py`, `tests/test_deploy.py`; merge `2b5ae4b` and follow-ups |
+| 51 | [deploy-model-registry.md](51-deploy-model-registry.md) | current | yes (§9 steps 0–3) | `tests/test_registry.py`, `tests/test_deploy.py`; merges `2b5ae4b` (step 0) … `002c85e` (step 3) |
 | 52 | [registry-on-blob.md](52-registry-on-blob.md) | current | yes; verified on Azure 2026-08-25 | `tests/test_registry.py`; `runbooks/52-registry-on-blob.md`; merge `f2fe6bf` |
 | 53 | [blob-registry-on-the-local-run-path.md](53-blob-registry-on-the-local-run-path.md) | current | yes | `tests/test_local_bundle_staging.py`; merge `38a2d09` |
 | 54 | [user-level-config.md](54-user-level-config.md) | current | yes | `tests/test_config.py`, `tests/test_cli.py`; merge `9a00f2b` (closes #78) |
@@ -70,7 +70,7 @@
 | 56 | [image-definitions-and-registry.md](56-image-definitions-and-registry.md) | current | yes | `tests/test_image_definition.py`, `tests/test_image_registry.py`; merge `b6ba610` |
 | 57 | [collect-and-stac-round-trips.md](57-collect-and-stac-round-trips.md) | current | yes | `tests/test_catalog_stac.py`, `tests/test_api_roi.py`; merge `52f7b2b` |
 | 58 | [collection-agnostic-verbs.md](58-collection-agnostic-verbs.md) | current | P1 + P2 (S1 RTC) yes; P3 (HLS) not started | `tests/test_spec58_p1.py`, `tests/test_spec58_p2.py`; ADRs 0028–0031; merges `38954a4`, `795b117` |
-| 59 | [imagery-archive-layout.md](59-imagery-archive-layout.md) | current | P1, P2 Window A, D12 yes; full Austria re-download not done | `tests/test_spec59_p1.py`; ADR 0032; merges `d8aa8dd`, `7c5493e` |
+| 59 | [imagery-archive-layout.md](59-imagery-archive-layout.md) | current | P1, P2 Window A, D12 yes; full Austria re-download not done | `tests/test_spec59_p1.py`; ADR 0032; merges `d8aa8dd` (P1), `77ac790` (P2 Window A), `7c5493e` (D12) |
 | — | [research-s2-reprocessing-dedup.md](research-s2-reprocessing-dedup.md) | current | n/a (research notes) | cited by spec 33 |
 
 ## Conventions
