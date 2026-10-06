@@ -14,7 +14,8 @@ python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev,l
 
 `main` is protected: no direct pushes. Work on a branch and open a PR from the template.
 
-1. **CI green**: ruff, the fast pytest suite, the guard tests, `scripts/docs_kwarg_sweep.py`.
+1. **CI green**: ruff, the fast pytest suite, the guard tests, `scripts/docs_kwarg_sweep.py`. A PR that
+   changes only Markdown files (or `LICENSE` / `NOTICE`) runs ruff, the docs guards and the sweep, not the rest.
 2. **Linked issue.** Changing a convention, an on-disk format or the public API also needs a signed-off
    short spec (`specs/TEMPLATE.md`; its number is its tracking issue's number). Bug fixes, refactors, docs and
    a new collection that follows `docs/adding-a-source.md` need only the issue.
