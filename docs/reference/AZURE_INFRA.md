@@ -135,7 +135,7 @@ crux of the whole auth story.
 
 > ### 3.1 ⭐ FORK RESOLVED — the scale runner targets **AML**, not Batch (2026-07-21)
 >
-> Measured, not assumed, by `runbooks/36-runner-fork-probe.md` (green 2026-07-21) against a
+> Measured, not assumed, by run-book `36-runner-fork-probe` (tag `docs-archive-2026`) (green 2026-07-21) against a
 > **decision rule registered before the numbers were seen**:
 >
 > | Fact | Value | Consequence |
@@ -261,7 +261,7 @@ is a real design point for the spec.
 ## 6. Gotchas & constraints (things that will bite us)
 
 1. **Batch quota starts tiny — ✅ CONFIRMED at exactly 6 dedicated vCPUs** (measured 2026-07-21,
-   `runbooks/36-runner-fork-probe.md`; low-priority is 6 as well). A fresh Batch account can't even
+   run-book `36-runner-fork-probe` (tag `docs-archive-2026`); low-priority is 6 as well). A fresh Batch account can't even
    run one 64-vCPU node, and this account is still fresh. Before any real Batch run we must file a
    **per-Batch-account quota increase** in the Portal for the D-family in the region (need ≥128 vCPU
    for 2×D64). Quota is per-account — it does not carry over from other projects.
@@ -306,7 +306,7 @@ These are the decisions the future spec 10 must settle. Flagged here so we don't
    a small always-/on-demand VM (would need adding `vms` to rise)? The `common-ops` Batch
    example pairs `vms` + `azure-batch` for exactly this.
 3. ~~**GDAL/VSI auth under MSI** for the raster-read exception — needs a spike.~~
-   **✅ RESOLVED by spec 31 (proven on real Azure 2026-07-18, `runbooks/31-p1-datacube-on-blob.md`
+   **✅ RESOLVED by spec 31 (proven on real Azure 2026-07-18, run-book `31-p1-datacube-on-blob` (tag `docs-archive-2026`)
    green).** `fsd.raster.rio_open` translates `abfss://`/`az://` → `/vsiadls/` (`storage/azure.py`)
    and opens inside a `rasterio.Env` carrying a **fresh `AZURE_STORAGE_ACCESS_TOKEN`** +
    `AZURE_STORAGE_ACCOUNT`; local paths stay a straight passthrough. The build streamed blob COGs
@@ -315,7 +315,7 @@ These are the decisions the future spec 10 must settle. Flagged here so we don't
    than through it — GDAL still writes only to node-local scratch (`rio_open`'s `mode="w"` guard
    is untouched), then `storage.transfer` publishes the finished COG to blob. Inference-output COGs
    to blob are proven at the unit-test level (TODO #17 closed); the real-cluster run is pending
-   (`runbooks/38-inference-on-aml.md`).
+   (run-book `38-inference-on-aml` (tag `docs-archive-2026`)).
 4. ~~**Input/output data layout in blob** — container/paths for the S2 archive, catalogs,
    datacubes, flattened arrays; how the catalog (GeoParquet) is shared to tasks.~~ **✅ RESOLVED
    by spec 36 D6** (signed off 2026-07-21): `<root>/imagery/...` (runbook 34), `<root>/runs/<run_id>/
@@ -375,7 +375,7 @@ These are the decisions the future spec 10 must settle. Flagged here so we don't
   whether ADLS Gen2's rename is genuinely *atomic* under concurrent writers**~~ — **✅ RESOLVED
   from primary docs (2026-07-21), see §8.1 below.**
 - Current **quota** actually granted on the Batch account (needs `az batch account show`) — **being
-  answered by `runbooks/36-runner-fork-probe.md`**, together with the AML cluster names/quota and
+  answered by run-book `36-runner-fork-probe` (tag `docs-archive-2026`)**, together with the AML cluster names/quota and
   (the fork's real discriminator) whether the compute identity is attached to the AML clusters.
 - ~~Whether the pool image (`microsoft-dsvm/ubuntu-hpc/2204`) + Docker is enough, or we need a
   custom node image.~~ **✅ CONFIRMED 2026-07-21** (fork probe): the pool runs that image with

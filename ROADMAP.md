@@ -5,7 +5,7 @@
 > **model contract** that lets project teams plug their own models into fsd. It feeds the
 > numbered specs in `fsd/specs/` — decisions here graduate into specs before implementation.
 > Infra ground-truth for the cloud phases lives in **`docs/reference/AZURE_INFRA.md`** (the `rise`
-> project). Read `fsd/PROGRESS.md` for current build status.
+> project). Current state: the pinned "Order of work" issue and the open PRs.
 >
 > The F1–F5 decisions baked into §3 are **proposed**, pending the user's sign-off.
 
@@ -233,7 +233,7 @@ path is a distraction until it ships:
 > **Wording widened 2026-07-21 (user), from "on Azure **Batch** at scale" / `runner="batch"`.**
 > The promise being locked is **the seam** — cloud as a swappable backend — not a product name, and
 > hardcoding the vendor's product into the north-star is precisely the failure mode that cost us a
-> session to detect. *Why Batch was displaced:* `runbooks/36-runner-fork-probe.md` measured the
+> session to detect. *Why Batch was displaced:* run-book `36-runner-fork-probe` (tag `docs-archive-2026`) measured the
 > project's Batch account at a **6 vCPU** dedicated core quota against a **64-core** pool VM — it
 > cannot allocate one node — while the AML `d16` cluster offers 512 cores today under **the same
 > managed identity spec 31 already proved against blob**. Full evidence: `docs/reference/AZURE_INFRA.md` §3.1.
@@ -254,7 +254,7 @@ code, the demo has failed even if it runs fast.
 **What is left, in order** (detail: `docs/reference/AZURE_INFRA.md` §3.1/§7/§8, TODO #41):
 
 1. ~~**Decide Batch vs AML.**~~ ✅ **RESOLVED 2026-07-21 → AML** (`cluster-<proj>-d16`), by measurement
-   rather than argument: `runbooks/36-runner-fork-probe.md` + `docs/reference/AZURE_INFRA.md` §3.1. Batch dropped.
+   rather than argument: run-book `36-runner-fork-probe` (tag `docs-archive-2026`) + `docs/reference/AZURE_INFRA.md` §3.1. Batch dropped.
 2. **Write spec 36 (the scale-runner spec)** — settles §7's remaining questions: where the driver
    runs, blob data layout, the job environment/image, the `--runner=` seam, idempotency under
    retries, telemetry. *(§7's task-granularity question is already answered — see below.)*
@@ -296,17 +296,17 @@ after this one, not part of it.
 | **P0.9** | ✅ **DONE (spec 23, 2026-07-10)** — **Local-completeness gate + team run-book.** `demos/e2e_austria.py` runs the *whole* local pipeline on **fresh real CDSE data** (download → jp2→COG → datacube → flatten → train → bundle → ROI build+infer → COG/STAC/merged), a **reusable template** (swap `--roi/--train`), **cross-UTM-zone-safe** (`merge="reproject"` area-dominant/`merge_crs`). Adds **decomposed download timing** (transfer vs COG-convert) + a **throughput probe** (factor out link/VPN), the **`plan_download` guardrail** (missing imagery → actionable `fsd.download` plan; verbs never auto-fetch), and a **no-download `estimate_run`** (ETA for any region/window/bands). Doc: `demos/E2E_AUSTRIA.md`. | the go-to "how fsd runs locally" doc + trustworthy timings | none | 
 | **P1** | Storage seam on Azure: adlfs/MSI read+write to the `rise` project storage; GDAL-VSI auth proven | build a datacube locally but I/O against `rise` blob (over VPN) | none (uses existing) |
 | **P2** | Azure **AML** runner for datacube fan-out (the runner seam; spec 36) | N datacubes built across the autoscaled `rise` AML `d16` cluster | **none** (was: Batch quota bump + `max_tasks_per_node` — moot since the fork went to AML) |
-| **P3** | 🟡 **PARTIALLY DONE (spec 39, 2026-07-24, pending cluster validation)** — **create-training-data-at-scale.** `create_training_data`/`flatten_training_data` gain `runner="aml"`: an optional download phase (`api.download`, reused), the spec-36 build fan-out (reused), and a new **single-node flatten reduce** (`workflows.runners.run_aml_flatten`, D3 — flatten is a reduce over ALL cubes, not a per-cell fan-out) whose compact output lands back on the laptop (`api._land_local`, D4, `storage.transfer`). The driver stays control-plane-only (ADR-0004) — only the flattened array (+ optional `features.npy`, computed on the driver, ADR-0020) comes home, never the raw cubes. All unit tests mocked at the AML-client boundary — `runbooks/39-training-data-on-aml.md` Phases 0-2 are the pending real-cluster validation. Docs: `docs/adr/0020`, `CONTEXT.md`. | Mode B: laptop triggers cloud download→build→flatten, pulls the flattened arrays | none new |
-| **P4** | ✅ **DONE (spec 38, 2026-07-23, pending cluster validation)** — **Inference at scale.** `run_inference(roi=…, runner="aml")` dispatches the P0.75 per-cell build+infer unit-of-work onto the **`rise` AML cluster**, reusing the P2 datacube-fan-out runner (`workflows.runners.run_aml_inference` + a new node entrypoint `workflows/infer_shard.py`) — a **thin runner/dispatch swap** (`runner=`/`storage=`/`runner_kwargs=` config), no new pipeline algorithm, **plus** the I/O-seam fixes the swap exposed: remote-dst COG (`raster.cog.to_cog`, closes TODO #17), bundle-loaded-once-per-node (closes TODO #25's root cause), a dedicated inference AML Environment (adapter + deps, an operator run-book step), and a one-node adapter-import smoke before the fan-out. 31 tests, all mocked at the AML-client boundary (no test needs Azure) — `runbooks/38-inference-on-aml.md` Phases 0-3 are the pending real-cluster validation. Docs: `docs/adr/0001`, `docs/adr/0002`, `CONTEXT.md`. | Mode C: the P0.75 ROI verb fanned out across AML nodes | maybe scale `max_nodes` |
+| **P3** | 🟡 **PARTIALLY DONE (spec 39, 2026-07-24, pending cluster validation)** — **create-training-data-at-scale.** `create_training_data`/`flatten_training_data` gain `runner="aml"`: an optional download phase (`api.download`, reused), the spec-36 build fan-out (reused), and a new **single-node flatten reduce** (`workflows.runners.run_aml_flatten`, D3 — flatten is a reduce over ALL cubes, not a per-cell fan-out) whose compact output lands back on the laptop (`api._land_local`, D4, `storage.transfer`). The driver stays control-plane-only (ADR-0004) — only the flattened array (+ optional `features.npy`, computed on the driver, ADR-0020) comes home, never the raw cubes. All unit tests mocked at the AML-client boundary — run-book `39-training-data-on-aml` (tag `docs-archive-2026`) Phases 0-2 are the pending real-cluster validation. Docs: `docs/adr/0020`, `CONTEXT.md`. | Mode B: laptop triggers cloud download→build→flatten, pulls the flattened arrays | none new |
+| **P4** | ✅ **DONE (spec 38, 2026-07-23, pending cluster validation)** — **Inference at scale.** `run_inference(roi=…, runner="aml")` dispatches the P0.75 per-cell build+infer unit-of-work onto the **`rise` AML cluster**, reusing the P2 datacube-fan-out runner (`workflows.runners.run_aml_inference` + a new node entrypoint `workflows/infer_shard.py`) — a **thin runner/dispatch swap** (`runner=`/`storage=`/`runner_kwargs=` config), no new pipeline algorithm, **plus** the I/O-seam fixes the swap exposed: remote-dst COG (`raster.cog.to_cog`, closes TODO #17), bundle-loaded-once-per-node (closes TODO #25's root cause), a dedicated inference AML Environment (adapter + deps, an operator run-book step), and a one-node adapter-import smoke before the fan-out. 31 tests, all mocked at the AML-client boundary (no test needs Azure) — run-book `38-inference-on-aml` (tag `docs-archive-2026`) Phases 0-3 are the pending real-cluster validation. Docs: `docs/adr/0001`, `docs/adr/0002`, `CONTEXT.md`. | Mode C: the P0.75 ROI verb fanned out across AML nodes | maybe scale `max_nodes` |
 | **P5** | Output STAC + hosted TiTiler / XYZ | outputs viewable as web tiles | TiTiler hosting (infra) |
 | **P6** | Deploy/registration UX; model-bundle push/register | one-command deploy of a bundle | model store (infra) |
 
 **P0–P1 need zero infra changes** — pure de-risking, two team-visible releases before we're
 ever blocked on someone else's `terraform apply`. The first infra proposal is P2 (Batch quota).
 
-### 5.9 Post-v1 sequencing (user, 2026-07-02) — historical, moved from `TODO.md`
+### 5.9 Post-v1 sequencing (user, 2026-07-02) — historical, moved from the old TODO file
 
-> Moved here verbatim when `TODO.md` became a stub (spec 41 D8/P2, 2026-07-30). **Point-in-time:
+> Moved here verbatim when the old TODO file became a stub (spec 41 D8/P2, 2026-07-30). **Point-in-time:
 > this is what the ordering looked like on 2026-07-02** — steps 1 and 2 have since happened, and
 > §5's phase table above is the live plan. Kept because it records *why* the order was chosen.
 
@@ -402,5 +402,5 @@ about fsd's calendar-`T` contract being unique.
 ---
 
 *Maintenance: update phase status as releases ship; fold each resolved decision into its
-numbered spec. Cross-refs: `docs/reference/AZURE_INFRA.md` (infra), `PROGRESS.md` (build status),
+numbered spec. Cross-refs: `docs/reference/AZURE_INFRA.md` (infra), the pinned "Order of work" issue (current state),
 `specs/` (signed-off designs).*

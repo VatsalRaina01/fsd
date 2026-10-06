@@ -514,7 +514,7 @@ def _assert_dispatch_telemetry_complete(dispatch_timings: list, *, step: str) ->
         "      The stamps are written by the `fsd` INSIDE the AML Environment image, not "
         "by this checkout, so the image predates spec 40.\n"
         "      Fix: rebuild both Environments from current fsd (see "
-        "runbooks/36-aml-runner.md), bump AZ_ENV_VERSION / AZ_INFER_ENV_VERSION, then "
+        "docs/howto/build-the-images.md), bump AZ_ENV_VERSION / AZ_INFER_ENV_VERSION, then "
         "resume with --run-id <the id printed at the start of this run> -- the download "
         "is already on disk and skips."
     )
@@ -626,7 +626,7 @@ def _assert_cog_tags_match_catalog(row) -> None:
 def _assert_archive_trustworthy(catalog_fp: str, dst_folderpath: str) -> dict:
     """D14: fold trust assertions into the download step (not a new step, D1 survives).
     Seconds of listing/tag reads -- the expensive cross-source pixel comparison stays in
-    `runbooks/37-verify-archive.md`.
+    run-book 37-verify-archive (tag `docs-archive-2026`).
 
     D14 names `scale`/`offset`/`nodata`; the catalog schema carries `offset` and
     `nodata` (spec 34 §1) and no `scale` column -- scale is a fixed per-band constant

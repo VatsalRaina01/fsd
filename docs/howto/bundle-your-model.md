@@ -101,10 +101,36 @@ unit, not just a convenience:
 
 - **`read_spec` validates a run without importing your model** — a model-free preflight check that
   works even if the model's dependencies aren't installed where the check runs.
-- **The `module:attr` reference must be importable** (an installed package, or a module on
-  `PYTHONPATH`) — bundle loading crosses a subprocess/Azure Batch boundary, and a `__main__` class
-  or a notebook-defined class won't reload there. `examples/eurocrops_rf.py` is written the way it
-  is — a standalone importable module — specifically so `eurocrops_rf:EuroCropsRF` resolves.
+- **The bundle carries your adapter's source** (spec 44), so the inference image needs no copy of
+  it. The adapter must live in a module or package file: a class defined in `__main__` or a
+  notebook cell cannot be reloaded on a node, and `save` raises with the fix.
+  `examples/eurocrops_rf.py` is a standalone module for exactly this reason.
+
+### What `code=` embeds
+
+| you write | what lands in `code/` |
+|---|---|
+| `code=None` (default) | the adapter's own module (`['my_adapter.py']`), or for a package adapter (`my_pkg.adapters:X`) the whole `my_pkg/` tree, layout kept |
+| `code=["./demo_model/my_adapter.py", "./demo_model/helper.py"]` | exactly these files |
+| `code=["./demo_model"]` | the **whole folder**, minus caches, virtualenvs, compiled files (`.pyc`, `.so`, …) and dotfiles; a `Dockerfile` or a wheel rides along |
+| `code=False` | nothing: the adapter must be pip-installed in the inference image |
+
+The import root is found by walking up `module.count(".") + 1` folders from the adapter's file:
+`my_adapter` → its own folder; `my_pkg.adapters` → the folder above `my_pkg/`. `<bundle>/code` goes
+on `sys.path` on the node. Auto-detection follows the module, not its imports, so list a sibling
+helper yourself. Keep every embedded file under one folder. `save` checks both before copying (spec
+45: #71, #72): an embedded file's sibling import that is not embedded, or an adapter that is not at
+the top of `code/`, raises a `ValueError` naming the fix.
+
+Check a saved bundle without importing anything:
+
+```python
+from fsd.model import bundle
+m = bundle.read_spec("path/to/bundle")
+print(m["fsd_bundle_version"], m["adapter"], m.get("code"), m.get("requirements"))
+```
+
+`code` must be non-null for the bundle to run on a generic (adapter-free) inference image.
 
 ## Verify it, then run it: three gates, each answering a different question
 

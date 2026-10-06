@@ -4,7 +4,7 @@
 # image/version below is version-**pinned** for reproducibility; nothing here is a fork of
 # upstream software (README.md documents exactly what's borrowed vs. locally built).
 #
-# Bring-up: `docker compose up` from this folder (see ../../runbooks/30-tier2-mini-mpc.md).
+# Bring-up: `docker compose up` from this folder (see ../../docs/howto/serve-xyz.md, Tier 2).
 services:
 
   # --- pgSTAC: Postgres + PostGIS + the pgSTAC schema (published, pre-built image) -----------

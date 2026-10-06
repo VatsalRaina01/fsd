@@ -5,7 +5,7 @@ core/datacube_ops.py. Each op: (datacube, metadata, **kwargs) -> (datacube, meta
 so they compose via `run_ops`.
 
 Dropped vs legacy: run_s2cloudless / CMK-based apply_cloud_mask (L1C-only) +
-run_s2cloudless_core[_chunkwise] (s2cloudless dependency). See DROPPED.md.
+run_s2cloudless_core[_chunkwise] (s2cloudless dependency). See LIMITATIONS.md, "Legacy".
 """
 
 from __future__ import annotations

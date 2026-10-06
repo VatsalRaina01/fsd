@@ -56,9 +56,9 @@ cat tests/data/tutorial/NOTICE
 | size on disk | 27 MB |
 
 `tests/data/tutorial/README.md` records exactly which source granules these pixels came from and
-how they were clipped (`tests/data/tutorial/build_fixture.py`, run via
-[`runbooks/43-build-tutorial-fixture.md`](../runbooks/43-build-tutorial-fixture.md) — you do not
-need to run that; it built the data you already have).
+how they were clipped (`tests/data/tutorial/build_fixture.py`). You do not need to run it. The
+committed fixture predates spec 59's granule naming, so today's `build_fixture.py` does not
+reproduce it byte for byte ([#121](https://github.com/nikhilsrajan/fsd/issues/121)).
 
 **On radiometry, if you're curious:** these are 2018-era Microsoft Planetary Computer products,
 generated before Sentinel-2's processing-baseline-04.00 offset convention existed. Their radiometric

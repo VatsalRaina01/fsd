@@ -50,6 +50,30 @@ grid cells. Use your source's STAC API (CDSE OData, or `pystac_client` against M
 your ROI's bounding geometry, date window, and MGRS tile(s) to get the real granule count; multiply
 by ~426 MB × (bands you're keeping ÷ 4) for a byte estimate.
 
+### From the command line (CDSE only): preview, then a run you can stop
+
+`fsd.sources.download_cli` is a thin CLI over CDSE's `download_resume`. `--dry-run` reads metadata
+only (no band bytes) and reports what the real run would fetch. `--stop-file` lets you stop a long
+run cleanly from another terminal; re-running the same command resumes it.
+
+```bash
+# preview: metadata only
+.venv/bin/python -m fsd.sources.download_cli \
+  --roi my_roi.geojson --start 2018-01-01 --end 2019-01-01 \
+  --bands B04 B08 SCL --dst data/imagery --catalog data/imagery/sentinel-2-l2a/catalog.parquet \
+  --max-tiles 600 --dry-run
+
+# real run; `touch /tmp/fsd.stop` from another terminal stops it cleanly
+.venv/bin/python -m fsd.sources.download_cli \
+  --roi my_roi.geojson --start 2018-01-01 --end 2019-01-01 \
+  --bands B04 B08 SCL --dst data/imagery --catalog data/imagery/sentinel-2-l2a/catalog.parquet \
+  --max-tiles 600 --stop-file /tmp/fsd.stop --creds cdse_credentials.json
+```
+
+It writes `<dst>/_result.json`. The exit code is the verdict: 0 on a clean finish or a user stop,
+non-zero on failures, a tripped circuit breaker or an unresolved pool break. `--help` lists the
+rest (`--max-cloudcover`, `--max-passes`, `--no-cog`, …).
+
 ## `max_tiles` is a required, not optional, guardrail
 
 ```python

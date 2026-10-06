@@ -1,110 +1,18 @@
-# Run-books — index & execution order
+# Run-books
 
-> **Why this file:** run-book *numbers* track the spec that motivated them, **not** the order you
-> run them in — so the demo pipeline reads out of order (you run 37 → 36 → 39 → 40 → 38). This
-> README is the **regenerated index** that replaces the ad-hoc status column (spec 41 D4/D14; this
-> *is* the replacement TODO #55 pointed at). A run-book is what Claude hands you instead of running
-> a pipeline/networked script itself (spec 24): you run the commands, paste back each step's
-> `_result.json`, Claude diffs it. Template: `TEMPLATE.md`.
->
-> **From 2026-09-30 new run-books are notebooks (spec 24 amendment A1):** one `.ipynb` per
-> run-book, code you can read, every PASS condition a plain `assert`, no environment variables,
-> and a first cell that checks the kernel (`.venv`) and which `fsd` it imported. You paste back
-> the **Summary** cell's output or a failing cell's message. Template: **`TEMPLATE.ipynb`**. The
-> Markdown run-books below stay as they are — point-in-time records.
->
-> Every run-book below also carries its own D4 status header (`current` / `superseded-by-NN` /
-> `historical`, ADR 0023) — that answers *"can I trust this as a description of fsd today?"*. This
-> table adds what the header deliberately excludes: **where it sits in the pipeline, and whether it
-> has actually been run.**
+A run-book is a check a person runs because it needs credentials, the cloud, real data or human
+eyes (gate 4 in `CONTRIBUTING.md`). An agent writes it; the maintainer runs it and pastes back the
+result.
 
-## ⭐ The demo pipeline (Azure ML scale-out) — run in THIS order
+**Write a new one as a notebook:** copy [`TEMPLATE.ipynb`](TEMPLATE.ipynb). Markdown cells say what
+each step does and what PASS means; each PASS is a plain `assert`; a Settings cell holds every input
+(no environment variables); commit it with outputs cleared (`scripts/clear_notebook_outputs.py`).
 
-The north-star demo is **download → build → flatten → train+bundle → inference**, all on Azure ML.
-The run-books that realise it, in dependency order (not numeric order):
+What is here:
 
-| # | run-book | what it does | consumes | ran? |
-|---|----------|--------------|----------|--------|
-| 0a | `36-phase0-identity-smoke.md` | RBAC gate: can an AML job auth to blob as the compute identity? | — | ✅ proven |
-| 0b | **Build the general-purpose AML Environment** (step inside `36-aml-runner.md` setup) | bakes the fsd wheel into the image every node uses for download/build/flatten | current `main` | ✅ (rebuild after any `src/fsd/` change — see 39 prereqs) |
-| 1 | `37-download-on-aml.md` | download the S2 archive to blob (CDSE one-job + MPC fan-out) | ROI + creds | ✅ Phases 0–3 green |
-| 2 | `37-verify-archive.md` | prove the landed archive is trustworthy (radiometry, catalog completeness, byte-identical) | 37's archive | ✅ green |
-| 3 | `36-aml-runner.md` | datacube build **fan-out** across N nodes (the 900-field set) | 37's verified archive | ✅ Phases 1–3b green |
-| 4 | `39-training-data-on-aml.md` | flatten the 900 cubes → **land-local** training arrays (`create_training_data` façade) | 36's cubes + `input.csv` | ✅ P0–1 green; P2 re-run pending |
-| 5 | `40-train-and-bundle.md` | features (driver-side) → **train `adapters:DemoRF` @ T=8** → **bundle** | 39's landed arrays | 🆕 not yet run |
-| 6 | `38-inference-on-aml.md` | `run_inference(roi=…, runner="aml")` at scale → per-cell COGs + STAC | 40's bundle + 37's archive | 🟡 impl+reviewed, cluster run pending |
-| 7 | `45-verify-bundle-carried-code.md` | **spec 44 phase 1:** prove the inference image no longer needs the adapter (Phase 0 is offline, ~10 s) | 40's bundle, re-saved | ✅ **Phases 0–2 green 2026-08-19** — `fsd-infer-sklearn:3` (no adapter in the image), ROI run **9/9 cells + STAC in 8.2 min**; QGIS eyeball outstanding |
-| 8 | `57-consumer-repo-e2e-run.md` | **the consumer-repo run:** the whole pipeline from a repo that installs fsd as a *dependency* — and the two measurements only a real run can make (spec 57 §9 step 5's `[collect]`/`[stac]` timings vs the **616 s / 161 s** baseline; spec 56 §9 step 10's forced stale-entry rebuild) | `fsd@main`, `rise/` | ✅ **ran 2026-09-02** — consumer path green; `[collect]` 616→26 s, `[stac]` 161→10 s (spec 57 §9 step 5 discharged). spec 56 §9 step 10 discharged by a live `environment_exists` probe, full break-and-heal loop not run) |
+- `TEMPLATE.ipynb` — the starting point.
+- `58-redownload-austria-mpc.md` + `scripts/58_redownload_austria.py` — the last Markdown run-book,
+  kept only until #119 turns it into a notebook for spec 59's Austria re-download.
 
-**Data hand-offs to remember:** 37 writes `$AZ_ROOT/archive/catalog.parquet` (36/38 read it — **not**
-the `mpc/` prefix from runbook 34); 36 Phase 3 writes `runs/<id>/input.csv` (39 reads it); 39 lands
-`tests/outputs/p39_training_data_aml/landed/` (40 reads it); 40 writes `demo_rf_bundle/` (38 Phase 0
-stages it, `AZ_BUNDLE_LOCAL`). 38 builds a **second, inference-specific** Environment (its own setup
-section). ⚠️ **Since spec 44 (2026-08-19) that Environment no longer `COPY`s `demos/adapters.py`** —
-the bundle carries its adapter's source and `bundle.load` puts it on `sys.path`, so the image is
-generic per *dependency family* (sklearn vs torch) and is rebuilt only when the **deps** change,
-never when the model or adapter does. Run-book **45** verifies exactly that, and covers the one
-migration step: **a bundle saved before 2026-08-19 must be re-saved**.
-
-**Timing recovery (supports spec 40's e2e report, not part of the run order above):**
-
-| run-book | what it is | ran? |
-|----------|-----------|--------|
-| `41-recover-aml-job-timings.md` | free, read-only recovery of missing AML wall-clocks from the workspace's own job history | ✅ ran, recovered 36/37 P3 lower bounds |
-| `42-timed-cold-reruns.md` | would have bought two timed cold re-runs at the cost of two cluster allocations + a 418 GB duplicate archive | ⛔ superseded by 41 — not run, per the user's call |
-
-## Track B — local pipeline & serving (foundational; mostly done before the AML move)
-
-The pipeline was proven **locally** first; these stay as reference and for local re-validation.
-
-| run-book | what it proves | ran? |
-|----------|----------------|--------|
-| `26-download-confirm-run.md` | safe CDSE download (resume + `--dry-run`/`--stop-file` seams), tiny Austria slice | ✅ local |
-| `27-austria-full-e2e.md` | the full Austria end-to-end local showcase run | ✅ local |
-| `32-mpc-baseline.md` | `sources.mpc.download` vs real MPC + processing-baseline harmonization | ✅ local |
-| `33-mpc-dedup-live.md` | reprocessing-dedup fires on the real duplicate acquisition (live MPC) | ✅ local |
-| `34-download-to-blob.md` | download-to-blob (CDSE + MPC), cloud-VM-first (predecessor of the AML download path) | ✅ |
-| `34-mini-mpc-cross-baseline.md` | cross-baseline render proof (the `-0.1`-offset black-tile branch) — still the only coverage of that fix | ✅ |
-| `28-stac-geometry-regen.md` | regenerate the demo STAC with the true slanted cell footprint (not the bbox) | ✅ |
-| `29-tier1-stacnotator-byo.md` | Tier-1 serving: a pre-styled XYZ URL consumed by STACNotator BYO-XYZ | ✅ |
-| `30-tier2-mini-mpc.md` | Tier-2 serving: outputs load into stock pgSTAC + titiler-pgstac (fsd = "just another MPC") | ✅ |
-| `59-p2-window-a.ipynb` | **spec 59 P2 (AC 18–21):** S2 + S1 of Window A into ONE archive root, repeat fetches nothing, a CDSE copy forces D6, kill a download locally + on blob (D10), QGIS both cubes. The first notebook run-book | ✅ **ran green 2026-09-30** — 10.68 GB; blob mid-put kill left no blob; QGIS ok |
-| `58-redownload-austria-mpc.md` | **re-ingest the local Austria archive from MPC under spec 58 P1's catalog schema** — the D12 rename/new columns invalidated every pre-P1 catalog, and this re-stamps radiometry from each item's own declared baseline. ⚠️ deletes the old archive first | ✅ **ran 2026-09-07** — 184 granules / 552 files / 67.2 GB, `B04,B08,SCL` @ cc50 (**B8A dropped**, full fidelity did not fit); verify 8/8 checks green, both cubes built (seam cell spans all 4 MGRS tiles), QGIS eyeball passed |
-
-## Track C — Azure P1 access probes & exploratory (one-offs)
-
-| run-book | what it is | ran? |
-|----------|-----------|--------|
-| `31-p1-access-probe.md` | "hello Azure": `az` + adlfs blob round-trip + `/vsiadls/` raster read (the first RBAC/seam probe) | ✅ gated spec 31 |
-| `31-p1-upload-slice.md` | upload a real S2 slice to the `rise` blob + repoint the catalog | ✅ gated spec 31 |
-| `31-p1-datacube-on-blob.md` | build a datacube reading + writing the `rise` blob | ✅ gated spec 31 |
-| `36-runner-fork-probe.md` | Batch-vs-AML exploration: what does `rise` actually give us today? | ✅ gated spec 36 |
-
-## Track D — the docs refactor (spec 41)
-
-| run-book | what it is | ran? |
-|----------|-----------|--------|
-| `43-build-tutorial-fixture.md` | build spec 42's committed **tutorial micro-fixture**: derive ROI+labels on the laptop, clip pixels in-region on a VM, land ~20 MB and commit it | 🆕 not yet run; **needs the generator implemented first** |
-| `44-todo-to-issues.md` | migrate `TODO.md`'s 62 rows to **number-aligned** GitHub issues (`#N == TODO #N`, spec 41 D8) — the manifest is reviewed and signed off; a misnumber is permanent, so this one is strictly sequential and halts on the first mismatch | 🆕 not yet run |
-
-## Not run-books
-- `TEMPLATE.ipynb` — the skeleton to copy for a new run-book (spec 24 A1): kernel + which-`fsd`
-  checks, a Settings cell, the step / check / Summary pattern.
-- `TEMPLATE.md` — the older Markdown skeleton (spec 24 SO-2); superseded by `TEMPLATE.ipynb` for
-  new run-books.
-- `HANDOFF-*.md` — ephemeral session batons (handoff protocol); `status: historical` — safe to
-  delete once the step they targeted has landed (all three have).
-- `scripts/` — helper scripts some run-books invoke.
-
-## Conventions (all run-books)
-- **Concrete `rise` values live in `../../AZURE_INFRA_PRIVATE.md`** (uncommitted, workspace root) —
-  paste them as env vars; never hardcode them here (public MIT repo). Run the `RECIPES.md`
-  identifier sweep before pushing.
-- Each step writes `_result.json` (`{step,status,pass,metrics,expected,error}`) — **paste that back,
-  not the logs.**
-- **VPN + `az login`** are required wherever the driver or a node touches blob.
-- Re-running is self-healing (idempotent skips); **never** `fs.rm(prefix, recursive=True)` on
-  `abfss://` (TODO #50 — it deletes then raises, reading as "nothing happened").
-- Every run-book's own D4 header (spec 41) is the per-file trust signal; this table's **"ran?"**
-  column is the process-state signal the header deliberately excludes. To regenerate this table:
-  re-derive each row from the run-book's own text and `PROGRESS.md` — do not hand-patch a stale row.
+Finished run-books (26–59) were deleted in spec 102 P3c. Their outcomes are in the specs and
+`docs/history.md`; the files are readable at tag `docs-archive-2026`.

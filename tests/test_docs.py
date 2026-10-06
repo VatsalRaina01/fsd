@@ -128,13 +128,6 @@ def test_d4_superseded_by_target_exists(path: Path):
 
 _ENV_REFERENCE = REPO_ROOT / "docs" / "reference" / "environment.md"
 
-# Point-in-time corpora are never edited after the fact (spec 41 D3), so what they name is
-# a fact about what was true then, not drift to fix. The progress archive in particular
-# still names variables since renamed or dropped (AZ_DOWNLOAD_ROOT,
-# AZ_INFER_ENV_NAME_VERSION). Excluded from any check that would ask it to keep up.
-_POINT_IN_TIME_EXCLUDE = {REPO_ROOT / "docs" / "progress-archive.md"}
-
-
 def test_az_vars_are_documented():
     """Every `fsd.config` key's `AZ_*` env name appears in the environment reference table."""
     import fsd.config as config
@@ -154,7 +147,10 @@ _MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 # Root documents + the maintained docs/ tree. Point-in-time corpora are excluded
 # deliberately: they are never edited after the fact (D3), so a link that rots
 # there is a fact about history, not a defect to fix.
-_LINKED_DOCS = ("README.md", "ARCHITECTURE.md", "CONTEXT.md", "ROADMAP.md", "PROGRESS.md")
+_LINKED_DOCS = (
+    "README.md", "ARCHITECTURE.md", "CONTEXT.md", "ROADMAP.md", "CONTRIBUTING.md", "AGENTS.md",
+    "LIMITATIONS.md", "runbooks/README.md",
+)
 
 
 def _link_targets(text: str):
@@ -166,13 +162,13 @@ def _link_targets(text: str):
 
 
 def _docs_with_links() -> list[Path]:
-    paths = [REPO_ROOT / n for n in _LINKED_DOCS if (REPO_ROOT / n).exists()]
-    # The exclusion above was declared but never applied to the docs/ sweep, so the
-    # progress archive was link-checked anyway. #94 exposed it: entries MOVED out of
-    # PROGRESS.md (ADR 0022 — verbatim, never rewritten) carry repo-root-relative
-    # links that resolve from the root but not from docs/, and the archive is
-    # point-in-time so they cannot be repointed. Honour the set here.
-    paths += sorted(p for p in (REPO_ROOT / "docs").rglob("*.md") if p not in _POINT_IN_TIME_EXCLUDE)
+    paths = [REPO_ROOT / n for n in _LINKED_DOCS]
+    # ADRs and findings are point-in-time (ADR 0022): their links may go dead when a file they
+    # cite is deleted (spec 102 D8). Their index pages are maintained, so those stay checked.
+    paths += sorted(
+        p for p in (REPO_ROOT / "docs").rglob("*.md")
+        if p.parent.name not in ("adr", "findings") or p.name == "README.md"
+    )
     return paths
 
 
@@ -270,8 +266,6 @@ def _docs_with_python_snippets() -> list[Path]:
     paths = []
     for d in _SNIPPET_DIRS:
         for path in sorted((REPO_ROOT / d).rglob("*.md")):
-            if path in _POINT_IN_TIME_EXCLUDE:
-                continue  # point-in-time corpus, never edited after the fact (D3)
             if _SNIPPET_RE.search(path.read_text()):
                 paths.append(path)
     return paths
@@ -379,13 +373,6 @@ def test_snippet_selector_is_not_tied_to_the_literal_word_python():
     uses = set(_fsd_attr_uses(text))
     assert ("fsd.api", "download") in uses, uses
     assert ("fsd.catalog.catalog", "TileCatalog") in uses, uses
-
-
-def test_the_p2_runbook_is_actually_covered_by_the_snippet_check():
-    """The concrete file the regression above hid. Named explicitly: a selector that
-    compiles but matches nothing is the failure mode this whole test class exists for."""
-    selected = {p.name for p in _docs_with_python_snippets()}
-    assert "58-p2-window-a.md" in selected, sorted(selected)
 
 
 # --- run-book `<py> -c "..."` snippets must survive the shell wrapper ----------------
@@ -570,3 +557,60 @@ def test_eurocrops_notices_carry_licence_and_citation(notice):
     assert "CC BY 4.0" in text
     assert "doi:10.5281/zenodo.7851838" in text
     assert "NOT been reconciled" not in text
+
+
+# Spec 102 D8 / AC11: the docs deleted in P3c stay deleted, and no living doc sends a reader to
+# one. A mention is allowed on a line that also names the archive tag. `docs/history.md` is
+# exempt: it is the narrative of how those files came and went.
+_DELETED_DOCS = (
+    "PROGRESS.md", "RECIPES.md", "CHANGES.md", "DROPPED.md", "BUGS.md", "TODO.md",
+    "docs/progress-archive.md",
+)
+_ARCHIVE_TAG = "docs-archive-2026"
+_RUNBOOK_PATH_RE = re.compile(r"runbooks/(?:scripts/)?[\w.-]+\.(?:md|py|ipynb)")
+
+
+def _deleted_doc_problems(name: str, text: str, exists) -> list[str]:
+    problems = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if _ARCHIVE_TAG in line:
+            continue
+        for doc in _DELETED_DOCS:
+            if re.search(rf"(?<![\w/-]){re.escape(Path(doc).name)}", line):
+                problems.append(f"{name}:{n} names {doc}")
+        for path in _RUNBOOK_PATH_RE.findall(line):
+            if not exists(path):
+                problems.append(f"{name}:{n} names {path}, which does not exist")
+    return problems
+
+
+def test_deleted_docs_stay_deleted():
+    present = [d for d in _DELETED_DOCS if (REPO_ROOT / d).exists()]
+    assert not present, f"deleted in spec 102 P3c (D8); readable at tag {_ARCHIVE_TAG}: {present}"
+
+
+def test_living_docs_do_not_point_at_deleted_docs():
+    living = [p for p in _docs_with_links() if p.name != "history.md"]
+    # Runnable demos print these pointers at users, and their READMEs are maintained. The demo
+    # write-ups (`demos/*.md` other than READMEs) are point-in-time and exempt.
+    demos = REPO_ROOT / "demos"
+    living += sorted(
+        p for p in demos.rglob("*")
+        if p.is_file() and (p.suffix in (".py", ".yml", ".yaml") or p.name == "README.md")
+    )
+    problems = []
+    for p in living:
+        problems += _deleted_doc_problems(
+            str(p.relative_to(REPO_ROOT)), p.read_text(encoding="utf-8"),
+            lambda rel: (REPO_ROOT / rel).exists(),
+        )
+    assert not problems, "\n".join(problems)
+
+
+def test_deleted_doc_check_red_cases():
+    never = lambda rel: False  # noqa: E731
+    assert _deleted_doc_problems("x", "see PROGRESS.md", never)
+    assert _deleted_doc_problems("x", "see `runbooks/36-aml-runner.md`", never)
+    assert not _deleted_doc_problems("x", "PROGRESS.md is at tag docs-archive-2026", never)
+    assert not _deleted_doc_problems("x", "`runbooks/58-x.md`", lambda rel: True)
+    assert not _deleted_doc_problems("x", "the old TODO file", never)

@@ -139,10 +139,10 @@ fsd config    # print the resolved config and where each value came from
 | how fsd got this shape — the forks taken and dropped | [`docs/history.md`](docs/history.md) |
 | a measured result about running at scale | [`docs/findings/`](docs/findings/) |
 | the Azure environment variables | [`docs/reference/environment.md`](docs/reference/environment.md) |
-| a reusable command | [`RECIPES.md`](RECIPES.md) |
+| a reusable command | [`docs/howto/`](docs/howto/), or a script in [`scripts/`](scripts/) |
 | design documents | [`specs/`](specs/) — start at `00-overview.md` |
-| operating procedures for real runs | [`runbooks/`](runbooks/) |
-| open work | `gh issue list` |
+| how to hand a real run to a person | [`runbooks/`](runbooks/) (copy `TEMPLATE.ipynb`) |
+| open work, and in what order | `gh issue list`; the pinned "Order of work" issue |
 
 Two benchmark reports record real runs — read them as **measurements, not instructions**; the
 instructions are the tutorial and how-tos above. [`demos/E2E_AUSTRIA.md`](demos/E2E_AUSTRIA.md) is

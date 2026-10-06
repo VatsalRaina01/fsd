@@ -60,7 +60,7 @@ S2_REFLECTANCE_SCALE = 1 / 10000
 # --- CDSE endpoints ----------------------------------------------------------
 # STAC catalog (discovery). Anonymous — no credentials needed. Queried via
 # pystac-client. Each item's `assets` give the per-band S3 hrefs directly, so we
-# never list the .SAFE over S3 (see BUGS.md BUG-001).
+# never list the .SAFE over S3 (that listing failed intermittently: BUG-001, ADR 0009).
 CDSE_STAC_URL = "https://stac.dataspace.copernicus.eu/v1/"
 # S3-compatible object store (tile bytes). Just an endpoint to s3fs. The OTC-pinned
 # host reduces load-balancer routing variance vs the GSLB alias (BUG-001).

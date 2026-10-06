@@ -1,6 +1,6 @@
 """Prove a diff is comments-only: compare docstring-stripped ASTs vs a git ref.
 
-Usage: astcheck.py <git-ref> [root]
+Usage: .venv/bin/python scripts/comment_astcheck.py <git-ref> [root]
 Exits 1 and prints every file whose executable AST changed.
 """
 import ast

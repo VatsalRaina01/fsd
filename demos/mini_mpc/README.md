@@ -11,8 +11,8 @@ catalog loads and serves the same way. Two datasets are used in the repo:
 
 | Dataset | STAC catalog | What it serves | Run-book |
 |---|---|---|---|
-| **Inference outputs** (crop map) | `tests/outputs/demo_e2e/model_outputs/stac` | single-band `output` COGs, discrete class colormap | `runbooks/30-tier2-mini-mpc.md` |
-| **Raw imagery** (mixed-baseline S2) | `tests/outputs/spec34_mixed_baseline/stac` | `B04/B03/B02/SCL` COGs, RGB + `unscale` | `runbooks/34-mini-mpc-cross-baseline.md` |
+| **Inference outputs** (crop map) | `tests/outputs/demo_e2e/model_outputs/stac` | single-band `output` COGs, discrete class colormap | [`docs/howto/serve-xyz.md`](../../docs/howto/serve-xyz.md) |
+| **Raw imagery** (mixed-baseline S2) | `tests/outputs/spec34_mixed_baseline/stac` | `B04/B03/B02/SCL` COGs, RGB + `unscale` | run-book 34-mini-mpc-cross-baseline (tag `docs-archive-2026`) |
 
 See `specs/30-tier2-mini-mpc-validation.md` for the design.
 
@@ -95,7 +95,7 @@ then `register_and_url.py` for the crop-map XYZ URL.
 
 **Worked example B — raw imagery (spec 34b):** `FSD_OUTPUTS_DIR=../../tests/outputs/spec34_mixed_baseline`,
 `--stac-dir tests/outputs/spec34_mixed_baseline/stac`, `--outputs-dir tests/outputs/spec34_mixed_baseline`,
-then build an RGB `unscale` URL by hand (cookbook below). Full walk-through: `runbooks/34-mini-mpc-cross-baseline.md`.
+then build an RGB `unscale` URL by hand (cookbook below). Full walk-through: run-book 34-mini-mpc-cross-baseline, at tag `docs-archive-2026`.
 
 ---
 

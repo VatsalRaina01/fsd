@@ -4,7 +4,7 @@ Each ADR captures one significant, lasting decision: its context, the decision, 
 rejected, and the consequences. Numbers are immutable; supersede a decision with a new ADR that
 references the old one rather than editing history.
 
-Most ADRs `0003`–`0019` were back-filled from the specs, `DROPPED.md`, `ROADMAP.md`, and the
+Most ADRs `0003`–`0019` were back-filled from the specs, the old DROPPED file, `ROADMAP.md`, and the
 runbooks — the decision was already made and recorded there; the ADR gives it a single canonical
 home. The cited spec/date is the source of record.
 

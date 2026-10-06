@@ -6,10 +6,10 @@
 > and sometimes fully succeeds — i.e. the cause is **CDSE server-side** (node
 > credential-replication inconsistency), not fsd. See
 > `debug-attempts/s3_paths_fetch/cdse_s3_intermittent_auth_report.md` and BUG-001 in
-> `../../BUGS.md`. Kept for history; steps 1–4 are still a fine way to *observe* the
+> `BUGS.md` at tag `docs-archive-2026`. Kept for history; steps 1–4 are still a fine way to *observe* the
 > intermittency, but the fix is client resilience, not a listing-method change.
 
-Goal (original): isolate **BUG-001** (`../../BUGS.md`). Shallow listing of a `.SAFE`
+Goal (original): isolate **BUG-001** (`BUGS.md` at tag `docs-archive-2026`). Shallow listing of a `.SAFE`
 works in fsd, but the **recursive** listing my file-selection uses
 (`fs.glob(".../**/*.jp2")`) fails with `SignatureDoesNotMatch`, while the legacy
 **boto3** `objects.filter(Prefix=...)` lists recursively fine. This runbook builds
