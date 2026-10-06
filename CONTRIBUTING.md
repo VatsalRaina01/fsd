@@ -46,6 +46,8 @@ Each line points at the incident that taught it.
   here" missed that `fs.transfer` was already atomic).
 - [ ] **Test the serialization boundary.** Shard CSVs and `input.csv` retype values (`"05.00"` becomes `5.0`);
   test the round trip, not the in-memory rows.
+- [ ] **A new verb kwarg is forwarded on every runner.** A default hides a dropped kwarg (`19b5ad8`: the AML
+  download dropped `collection=`, so an S1 request discovered S2 granules); add a forwarding test per hop.
 - [ ] **Address per unit path.** Never hash a set; watch control files written once per run (spec 58 D13).
 - [ ] **Doc call sites rot silently.** pytest never runs a notebook cell; `scripts/docs_kwarg_sweep.py` does
   (four dead `scl_mask_classes=` call sites after spec 58 P1).
@@ -75,7 +77,7 @@ Each line points at the incident that taught it.
    redirect is lost if a repo is ever created at the old name).
 2. Branch protection and CI move with the repo; check the weekly failure still opens an issue.
 3. The successor gets their own `rise` access through the platform admin; shared aliases and blob roots are
-   in `AZURE_INFRA.md`.
+   in `docs/reference/AZURE_INFRA.md`.
 4. Hand private values (resource group, workspace names) over privately; never commit them.
 5. Dry run: a fresh agent session or the successor takes a `good first issue` to a green PR using only these docs.
    Every question it has to ask becomes a doc fix.

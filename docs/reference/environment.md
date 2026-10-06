@@ -217,5 +217,5 @@ before you spend.**
 - `fsd.config` (`src/fsd/config.py`) — the schema and loader for the seven keys `fsd init` writes
   (five required + two optional registries; `root` is not one of them — spec 55 D1)
 - `AZURE_INFRA_PRIVATE.md` (workspace root, uncommitted) — the concrete values
-- `AZURE_INFRA.md` — the scrubbed public description of the platform
+- [`AZURE_INFRA.md`](AZURE_INFRA.md) — the scrubbed public description of the platform
 - `runbooks/README.md` — which run-book needs which of these
