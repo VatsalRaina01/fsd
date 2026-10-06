@@ -639,8 +639,9 @@ model) as an instruction to fix, and that session guesses.
   The implementing session does **not** attempt it; it stops and says so in the PR. The maintainer debugs and
   fixes it in a stronger-model session (for the user: Opus, `/effort high`), and the reviewer's round 2 checks
   that fix. The two-round cap (A1.2) is unchanged and counts the same rounds.
-- **A3.5** Where it lives: `AGENTS.md` "Review without a relay" (which agent to spawn, the three checks, the
-  three labels). `CONTRIBUTING.md` is unchanged: per A1.3 the human-facing gates do not name the subagents.
+- **A3.5** Where it lives: `AGENTS.md` "How we work with agents", bullets "Choosing the reviewer" (which agent
+  to spawn, the three checks) and "Acting on review findings" (the three labels). These bullets replace the
+  section A1.2 called "Review without a relay" (see A4.7). `CONTRIBUTING.md` is unchanged: per A1.3 the human-facing gates do not name the subagents.
 
 **Prior art (D9).** The thresholds are anchored on published review data; the rule that maps PR size to
 reviewer effort is **homemade**. SmartBear's Cisco case study found defect-finding best when one review covers
@@ -659,9 +660,9 @@ its best-practices summary. I found no pre-2022 source on sizing an *automated* 
 **Out of scope.** A Sonnet reviewer (A1.1 requires a stronger model than the implementer). Choosing the agent
 by a hook or CI. Changing the two-round cap.
 
-**Outside the repo (the user applies this, as in §8).** The workspace `CLAUDE.md` "Model split & effort" bullet
-now points review at `AGENTS.md` "Review without a relay" and `.claude/agents/` instead of restating it, so A3
-needs no further edit there.
+**Outside the repo (the user applies this, as in §8).** The workspace `CLAUDE.md` "Models and effort" bullet
+says "Review follows `fsd/AGENTS.md` and the agent files in `fsd/.claude/agents/`" instead of restating the
+flow, so A3 needs no edit there.
 
 **Sources (per-source credit).**
 - **SmartBear, "Best practices for peer code review"**
@@ -681,7 +682,7 @@ the user merges the PR that adds it. Builds on A1 and A3.
 planning session writes a handoff, the user runs `/handoff`, starts a fresh session, sets model and effort,
 points it at the PR, and later relays "needs diagnosis" findings back to Opus. A1 removed the user as the
 message bus for review; implementation still has it. The rule that blocks the obvious fix, "Do not spawn
-subagents just to write code" (`AGENTS.md`), assumed a subagent costs more than a session. Both start cold,
+subagents just to write code" (`AGENTS.md` before this PR), assumed a subagent costs more than a session. Both start cold,
 and a subagent's tool output stays out of the planner's context, which is the constraint that matters.
 
 **Decision.** Optional method, like A1 (A1.3 applies: `CONTRIBUTING.md` is unchanged and nobody is required
@@ -689,7 +690,8 @@ to use it).
 - **A4.1** A committed agent file `.claude/agents/implementer.md`: `model: sonnet`, `effort: medium`,
   `disallowedTools: Agent`. After the spec (or, for non-spec work, the issue) is signed off, the planning
   session may spawn it with the spec, the branch and the PR number instead of handing off to a new session.
-  `AGENTS.md`'s "Do not spawn subagents just to write code" becomes "… except the `implementer` agent (A4)".
+  `AGENTS.md` drops "Do not spawn subagents just to write code"; its "Writing the code (Claude Code)" bullet
+  says the `implementer` "is the only subagent that writes code".
 - **A4.2** **Flat, not nested.** The planning session (the *orchestrator*) spawns the implementer, waits for it
   to return, then spawns `pr-reviewer` or `pr-reviewer-small` (A3.2) itself. The implementer has no `Agent`
   tool, so it cannot spawn a reviewer or anything else. The reviewer is still a fresh context on a stronger
@@ -707,6 +709,13 @@ to use it).
   next); commits with a `Co-Authored-By` line naming its own model; returns a summary of a few lines. Subagents
   cannot ask the user questions, so an ambiguity in the spec comes back to the orchestrator, which asks the user.
 - **A4.6** The handoff protocol (spec 24 D6) still applies when the orchestrator's own context gets heavy.
+- **A4.7** **Deviation in the trial (user, 2026-10-06).** At the user's request the orchestrator also rewrote
+  `AGENTS.md` and the agent files in plain language, with no spec or amendment references (commit `6122b65`).
+  That rewrite carries the reviewer choice and the three labels (A3.5), the implementer flow (A4.1), the A2
+  gate-1 wording and the A2.6 test rule, and the `needs diagnosis` label in `pr-reviewer.md` (A3.4). It
+  replaces the `AGENTS.md` section A1.2 names, "Review without a relay", with the "Choosing the reviewer" and
+  "Acting on review findings" bullets; A1's rules are unchanged. The orchestrator also writes spec text
+  answering review findings, since the spec is the planning session's work, not the implementer's.
 
 **Prior art (D9).** **Homemade.** Searched: Baker's Chief Programmer Team (IBM Systems Journal 11(1), 1972,
 doi:10.1147/sj.111.0056) as the nearest human model of one lead plus implementers. It is a team structure built
@@ -715,17 +724,18 @@ is not cited as precedent. I found no pre-2022 source for orchestrating model-ba
 
 **How to verify.**
 - #115 is the trial: after sign-off, the A2 + A3 + A4 implementation is written by the `implementer` agent. Its
-  commits carry a `Co-Authored-By` line naming a Sonnet model, the orchestrator's commits touch only the spec and
-  `.claude/agents/implementer.md`, and the PR description records how many rounds it took.
+  commits carry a `Co-Authored-By` line naming a Sonnet model, the orchestrator's commits touch only the spec,
+  `.claude/agents/implementer.md`, and the files A4.7 lists, and the PR description records how many rounds it
+  took.
 - `git check-ignore .claude/agents/implementer.md` prints nothing (the file is tracked).
 - `implementer.md`'s frontmatter has `disallowedTools` including `Agent`.
 
 **Out of scope.** Nested agents (implementer → reviewer). Auto-merge. Chaining PRs or phases in one run. A
 CI-run or hook-run implementer (A1's reasons apply).
 
-**Outside the repo (the user applies this, as in §8).** Workspace `CLAUDE.md`, "Model split & effort": "Don't
-spawn subagents just to write code" → "Don't spawn subagents to write code, except the `implementer` agent
-(spec 102 A4)". "Handoff protocol": add "Under A4 no handoff is needed between plan and implement".
+**Outside the repo (the user applies this, as in §8).** Applied 2026-10-06. Workspace `CLAUDE.md`, "Models
+and effort": "Normally that is the `implementer` agent, which the Opus session spawns after sign-off".
+"Handoffs": "Going from plan to code needs no handoff when the `implementer` agent writes the code".
 
 **Sources (per-source credit).**
 - **Claude Code docs, "Subagents"** (<https://code.claude.com/docs/en/sub-agents>): `model` accepts the `sonnet`
