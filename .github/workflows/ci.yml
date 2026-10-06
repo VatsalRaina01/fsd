@@ -51,17 +51,18 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
         run: |
-          echo "code=true" >> "$GITHUB_OUTPUT"
+          code=true
           if [ "$EVENT" = "pull_request" ]; then
             if git fetch origin "$BASE_REF" --depth=1 \
-               && git diff --name-only "origin/$BASE_REF.." > changed-files.txt \
-               && code=$(python scripts/ci_changed_paths.py < changed-files.txt); then
-              echo "code=$code" >> "$GITHUB_OUTPUT"
+               && git diff --name-only --no-renames "origin/$BASE_REF.." > changed-files.txt \
+               && result=$(python scripts/ci_changed_paths.py < changed-files.txt); then
+              code=$result
             else
               echo "::warning::listing changed files failed; running the full suite"
             fi
           fi
-          echo "full suite needed: $(grep '^code=' "$GITHUB_OUTPUT" | tail -1)"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "full suite needed: $code"
       - name: Install fsd with every extra
         run: pip install -e ".[dev,local,s3,notebooks,grid,azure,aml,mpc,titiler,serving]" pytest-reportlog
       - name: Lint
@@ -71,7 +72,7 @@ jobs:
       - name: Docs call sites match live signatures
         run: python scripts/docs_kwarg_sweep.py
       - name: Tests (the `network` marker is opt-in, so it stays off)
-        if: steps.changes.outputs.code == 'true'
+        if: ${{ !cancelled() && steps.changes.outputs.code == 'true' }}
         run: pytest -q -rs --report-log=pytest-log.jsonl --ignore=tests/test_docs.py --ignore=tests/test_notebooks.py
       - name: Open an issue when the weekly run fails
         if: failure() && github.event_name == 'schedule'
