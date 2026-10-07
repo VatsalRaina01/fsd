@@ -616,8 +616,7 @@ def test_deleted_doc_check_red_cases():
     assert not _deleted_doc_problems("x", "the old TODO file", never)
 
 
-# --- Setup installs what CI installs (spec 102 P4, D17 attempt 1) -------------------------
-# A fresh `[dev,local]` install left the suite red, and the dry-run agent spent ~11 min on it.
+# --- Setup installs what CI installs (spec 102 P4) ----------------------------------------
 # The Setup blocks must name the same extras as CI's install step, so "tests green before you
 # start" holds on a fresh clone.
 _EXTRAS_RE = re.compile(r'pip install -e "\.\[([^\]]+)\]"')
