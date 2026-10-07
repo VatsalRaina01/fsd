@@ -66,6 +66,8 @@ def run_shard(shard_csv_url: str, *, cores: int) -> dict:
             result = runners.run_local(local_csv, cores=cores)
             if result.returncode != 0:
                 error = f"snakemake exited {result.returncode}"
+                if result.stderr:
+                    error += f":\n{result.stderr}"
         except Exception as exc:  # noqa: BLE001 - always report, never crash the job silently
             error = str(exc)
     finally:
