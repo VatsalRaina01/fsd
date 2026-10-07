@@ -614,3 +614,26 @@ def test_deleted_doc_check_red_cases():
     assert not _deleted_doc_problems("x", "PROGRESS.md is at tag docs-archive-2026", never)
     assert not _deleted_doc_problems("x", "`runbooks/58-x.md`", lambda rel: True)
     assert not _deleted_doc_problems("x", "the old TODO file", never)
+
+
+# --- Setup installs what CI installs (spec 102 P4) ----------------------------------------
+# The Setup blocks must name the same extras as CI's install step, so "tests green before you
+# start" holds on a fresh clone.
+_EXTRAS_RE = re.compile(r'pip install -e "\.\[([^\]]+)\]"')
+
+
+def _install_extras(text: str) -> list[set[str]]:
+    return [set(m.split(",")) for m in _EXTRAS_RE.findall(text)]
+
+
+def test_setup_installs_the_extras_ci_installs():
+    ci = _install_extras((REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
+    assert len(ci) == 1, f"expected one `pip install -e \".[...]\"` in ci.yml, found {len(ci)}"
+    for name in ("CONTRIBUTING.md", "AGENTS.md"):
+        found = _install_extras((REPO_ROOT / name).read_text(encoding="utf-8"))
+        assert found == ci, f"{name} Setup installs {found}, CI installs {ci[0]}"
+
+
+def test_install_extras_red_cases():
+    assert _install_extras('pip install -e ".[dev,local]"') == [{"dev", "local"}]
+    assert _install_extras("pip install fsd") == []

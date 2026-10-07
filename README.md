@@ -35,7 +35,7 @@ an fsspec backend resolved by URL scheme, and together they cost 53 packages / 1
 AML-only or MPC-only user never touches. Ask for what you use — **fsd names the missing extra
 rather than the missing package** if you don't.
 
-Python ≥ 3.11. For development: clone, then `pip install -e ".[dev,local]"`.
+Python ≥ 3.11. For development: clone, then follow [`CONTRIBUTING.md`](CONTRIBUTING.md#setup) Setup.
 
 ## 60 seconds
 

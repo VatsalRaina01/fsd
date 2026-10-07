@@ -772,3 +772,36 @@ label, and `git tag --contains 8d1b875` lists `v0.2.0`.
 
 **Out of scope.** Releasing `v0.1.0` retroactively. Which PRs go into `v0.2.0` (everything on `main` at tag
 time).
+
+## Amendment A6 — what "the cloud" means for gate 4 (2026-10-07)
+
+**Status:** DRAFT, awaiting sign-off. From the P4 dry run (D17 b, attempt 1, #102). Signed off when the user
+merges the PR that adds it.
+
+**Problem.** Gate 4 (D2) applies "when the change touches real data, the cloud, or pixels". In the dry run, the agent
+fixed #122 (labelled `cloud`) in `fsd.workflows.shard`, `infer_shard` and `runners`, the code an Azure ML job runs,
+and called gate 4 not applicable because its tests use fakes. That also made the PR eligible for
+`pr-reviewer-small` (A3, condition b). The maintainer then ran the same code with real Snakemake to get the evidence.
+"The cloud" needs a definition that does not depend on how the tests are written.
+
+**Decision.** D2 gate 4's text is not rewritten (D5). Read "the cloud" as:
+- **A6.1** Code that dispatches to, runs as, or reports from a cloud job: the AML runner (`runner="aml"`), the
+  in-job entry points (`fsd.workflows.shard`, `fsd.workflows.infer_shard`), the local runner they call
+  (`fsd.workflows.runners`), and the node image definitions. This holds even when unit tests cover the code
+  with fakes. Code that a job merely imports (datacube building, sources) falls under "real data" or "pixels"
+  as before.
+- **A6.2** Evidence: a run of the changed code with the real tools and no fakes (for example a failing shard run
+  through real Snakemake on a laptop) counts when the change does not depend on Azure itself. A change to
+  dispatch, credentials, images or Azure storage needs a run on Azure. Without access, the contributor says so
+  and the reviewer runs it (unchanged).
+- **A6.3** The living docs say this where gate 4 is stated: `CONTRIBUTING.md` (the full rule), `AGENTS.md` and
+  `pr-reviewer-small.md` (one line each, pointing to `CONTRIBUTING.md`).
+
+**Prior art (D9).** Not a new mechanism: it defines a term in an existing gate. The evidence rule in A6.2 is what
+the maintainer accepted on PR #132 (2026-10-07).
+
+**How to verify.** `CONTRIBUTING.md`, `AGENTS.md` and `.claude/agents/pr-reviewer-small.md` each name the in-job
+entry points under gate 4. The D17 re-try is not needed for this amendment: it was a `"rule"` observation, not a gap.
+
+**Out of scope.** Automating the gate-4 decision (for example by path in CI). Changing which reviewer A3 picks,
+beyond what this definition implies.
