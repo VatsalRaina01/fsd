@@ -84,11 +84,10 @@ def _run(cmd: list[str]) -> tuple[int, str]:
     )
     tail: deque[str] = deque(maxlen=_STDERR_TAIL_CHARS)
     try:
-        with process.stderr:
-            for line in process.stderr:
-                sys.stderr.write(line)
-                tail.append(line)
-        process.wait()
+        for line in process.stderr:
+            sys.stderr.write(line)
+            tail.append(line)
+        process.communicate()
     except KeyboardInterrupt:
         print("\nInterrupt received, stopping Snakemake...")
         os.killpg(process.pid, signal.SIGINT)
