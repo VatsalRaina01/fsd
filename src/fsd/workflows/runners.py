@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import deque
 from collections.abc import Mapping, Sequence
 from importlib.resources import files
 
@@ -73,11 +74,19 @@ def _require_snakemake() -> None:
         )
 
 
-def _run(cmd: list[str]) -> int:
-    """Run `cmd`, isolated in its own process group so Ctrl-C stops the whole
-    Snakemake tree cleanly (port of legacy run_snakemake)."""
-    process = subprocess.Popen(cmd, start_new_session=True)
+_STDERR_TAIL_CHARS = 4000
+
+
+def _run(cmd: list[str]) -> tuple[int, str]:
+    """Run `cmd` in its own process group, echo its stderr, and return (returncode, last 4000 stderr chars)."""
+    process = subprocess.Popen(
+        cmd, start_new_session=True, stderr=subprocess.PIPE, text=True, errors="replace"
+    )
+    tail: deque[str] = deque(maxlen=_STDERR_TAIL_CHARS)
     try:
+        for line in process.stderr:
+            sys.stderr.write(line)
+            tail.append(line)
         process.wait()
     except KeyboardInterrupt:
         print("\nInterrupt received, stopping Snakemake...")
@@ -86,7 +95,7 @@ def _run(cmd: list[str]) -> int:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid, signal.SIGKILL)
-    return process.returncode
+    return process.returncode, "".join(tail)[-_STDERR_TAIL_CHARS:]
 
 
 def run_local(
@@ -124,8 +133,8 @@ def run_local(
     if unlock:
         cmd.append("--unlock")
 
-    returncode = _run(cmd)
-    return subprocess.CompletedProcess(args=cmd, returncode=returncode)
+    returncode, tail = _run(cmd)
+    return subprocess.CompletedProcess(args=cmd, returncode=returncode, stderr=tail)
 
 
 def run_local_inference(
@@ -229,8 +238,8 @@ def _run_snakemake(snakefile_rel, cores, conf, *, overwrite=False, dry_run=False
         cmd.append("--dry-run")
     if unlock:
         cmd.append("--unlock")
-    returncode = _run(cmd)
-    return subprocess.CompletedProcess(args=cmd, returncode=returncode)
+    returncode, tail = _run(cmd)
+    return subprocess.CompletedProcess(args=cmd, returncode=returncode, stderr=tail)
 
 
 # --- P2: the Azure ML runner -------------------------------------------------
