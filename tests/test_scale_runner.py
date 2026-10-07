@@ -119,6 +119,26 @@ def test_run_shard_resolves_remote_csv_and_calls_run_local(tmp_path, monkeypatch
     assert published["shard"] == "0.csv"
 
 
+def test_run_shard_puts_the_stderr_tail_in_the_failed_status(tmp_path, monkeypatch):
+    shard_url = "memory://runs/r2/shards/0.csv"
+    rows = [{"export_folderpath": str(tmp_path / "cube1"), "shapefilepath": "g1.geojson",
+             "catalog_filepath": "c1.parquet"}]
+    with fs.open(shard_url, "w") as f:
+        pd.DataFrame(rows).to_csv(f, index=False)
+    monkeypatch.setattr(
+        runners, "run_local",
+        lambda *a, **kw: subprocess.CompletedProcess(
+            args=[], returncode=1, stderr="ModuleNotFoundError: No module named 'x'"),
+    )
+
+    shard.run_shard(shard_url, cores=1)
+
+    with fs.open(shard._status_url(shard_url), "r") as f:
+        error = json.load(f)["error"]
+    assert "snakemake exited 1" in error
+    assert "ModuleNotFoundError: No module named 'x'" in error
+
+
 # --- fake AML client: the injection seam for run_aml (D3 invariant 3) -------------
 
 class _NS(types.SimpleNamespace):

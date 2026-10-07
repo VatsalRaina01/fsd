@@ -319,3 +319,16 @@ def test_require_snakemake_names_the_local_extra_when_absent(monkeypatch):
 def test_require_snakemake_is_a_no_op_when_installed(monkeypatch):
     monkeypatch.setattr(runners.importlib.util, "find_spec", lambda name: object())
     runners._require_snakemake()
+
+
+# --- #122: _run echoes the child's stderr and returns a bounded tail ----------------
+
+
+def test_run_returns_the_stderr_tail_and_echoes_it(capfd):
+    import sys
+
+    code = "import sys; sys.stderr.write('x' * 5000 + '\\n'); sys.stderr.write('final line\\n'); sys.exit(3)"
+    returncode, tail = runners._run([sys.executable, "-c", code])
+    assert returncode == 3
+    assert len(tail) <= 4000 and tail.endswith("final line\n")
+    assert "final line" in capfd.readouterr().err

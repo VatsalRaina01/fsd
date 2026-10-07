@@ -12,6 +12,7 @@ deps) for the engine/Snakefile paths; `memory://` stands in for blob.
 from __future__ import annotations
 
 import json
+import subprocess
 import types
 
 import geopandas as gpd
@@ -163,9 +164,15 @@ def test_infer_shard_status_reports_failed_when_snakemake_exits_nonzero(tmp_path
     _write_input_csv(shard_url, n_units=1)
 
     monkeypatch.setattr(runners, "run_local_inference",
-                        lambda *a, **kw: types.SimpleNamespace(returncode=1))
+                        lambda *a, **kw: subprocess.CompletedProcess(
+                            args=[], returncode=1,
+                            stderr="ModuleNotFoundError: No module named 'x'"))
     status = infer_shard.run_infer_shard(shard_url, staged_bundle_url, cores=1)
     assert status["status"] == "failed"
+    with fs.open(infer_shard._status_url(shard_url), "r") as f:
+        error = json.load(f)["error"]
+    assert "snakemake exited 1" in error
+    assert "ModuleNotFoundError: No module named 'x'" in error
 
 
 # --- D11: adapter_smoke -- the one-node import/predict-callable check --------------
