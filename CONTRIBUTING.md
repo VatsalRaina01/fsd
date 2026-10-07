@@ -6,7 +6,7 @@ inbound = outbound). No CLA, no sign-off line. Agents: also read `AGENTS.md`.
 ## Setup
 
 ```bash
-python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev,local]"
+python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev,local,s3,notebooks,grid,azure,aml,mpc,titiler,serving]"
 .venv/bin/python -m pytest -q && .venv/bin/ruff check src/ tests/
 ```
 
@@ -22,7 +22,10 @@ python3.11 -m venv .venv && source .venv/bin/activate && pip install -e ".[dev,l
 3. **Reviewed by someone other than the author**, as a PR comment. Every finding is fixed in the PR or
    filed as an issue.
 4. **Real-run evidence** when you touch real data, the cloud or pixels: paste the output or a screenshot
-   (QGIS). No archive or Azure access? Say so; the reviewer runs it.
+   (QGIS). "The cloud" includes code that dispatches, runs as or reports from a cloud job: the AML runner,
+   `fsd.workflows.shard` / `infer_shard`, the `fsd.workflows.runners` they call, image definitions. That holds
+   even when tests use fakes. A run with the real tools and no fakes (e.g. real Snakemake on a laptop) counts,
+   unless the change depends on Azure itself. No archive or Azure access? Say so; the reviewer runs it.
 
 The PR title becomes the release-note line. The maintainer labels and merges (merge commit).
 
