@@ -11,6 +11,8 @@ each step does and what PASS means; each PASS is a plain `assert`; a Settings ce
 What is here:
 
 - `TEMPLATE.ipynb` — the starting point.
+- `102-p4-dry-run.ipynb` — spec 102's end test (D17 b, AC14): a fresh Claude Code session that sees only
+  a clone of the repo takes a `good first issue` to a PR. Run again at each maintainer handover (D18).
 - `58-redownload-austria-mpc.md` + `scripts/58_redownload_austria.py` — the last Markdown run-book,
   kept only until #119 turns it into a notebook for spec 59's Austria re-download.
 

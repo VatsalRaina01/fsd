@@ -19,6 +19,10 @@ pip install -e ".[dev,local]"            # CI installs every extra; add the ones
 .venv/bin/python scripts/docs_kwarg_sweep.py   # calls in docs and notebooks match the real signatures
 ```
 
+The first two lines download packages, so a person runs them once, before an agent session starts
+(rule 1 below). If `.venv` is missing, or your change needs an extra it lacks, ask the person to
+install it; do not run `pip` yourself. The last three lines are the checks you run.
+
 A git worktree has no `.venv`. Run tests there with
 `PYTHONPATH=src <main-checkout>/.venv/bin/python -m pytest -q -p no:cacheprovider`.
 
